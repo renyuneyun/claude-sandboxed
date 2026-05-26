@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -e
+
+# Target folder defaults to the directory you are currently standing in
+export WORKSPACE_DIR="${1:-$(pwd)}"
+export WORKSPACE_DIR=$(cd "$WORKSPACE_DIR" && pwd)
+
+# Resolve the data directory relative to this script's install prefix, supporting
+# any layout (/usr, /usr/local, /opt/homebrew, etc.) and direct repo usage.
+# Override by setting CLAUDE_SANDBOXED_DIR in your environment.
+if [[ -n "$CLAUDE_SANDBOXED_DIR" ]]; then
+    SANDBOX_COMPOSE_DIR="$CLAUDE_SANDBOXED_DIR"
+else
+    _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$_script_dir/../share/docker-compose.yml" ]]; then
+        # Development / repo checkout: script is in bin/, data files are in share/
+        SANDBOX_COMPOSE_DIR="$(cd "$_script_dir/../share" && pwd)"
+    else
+        # Installed: <prefix>/bin/<script> → <prefix>/share/claude-sandboxed
+        SANDBOX_COMPOSE_DIR="$(cd "$_script_dir/../share/claude-sandboxed" && pwd)"
+    fi
+fi
+
+# Stop before running to clean up potential issues
+#docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" down
+
+# Spin up the sandbox services invisibly in the background
+docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" up -d
+
+# Execute Claude inside the runtime autonomously
+docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec -it ai-agent npx --yes @anthropic-ai/claude-code --dangerously-skip-permissions
+#docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec -it ai-agent bash
+

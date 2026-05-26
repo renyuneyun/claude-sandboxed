@@ -1,0 +1,18 @@
+# Maintainer: renyuneyun (Rui Zhao) <email@ryey.icu>
+pkgname=claude-sandboxed
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Sandboxed Claude Code environment using Docker, with git push protection"
+arch=('any')
+url="https://github.com/renyuneyuny/claude-sandboxed"
+license=('Apache')
+depends=('docker')
+source=()
+sha256sums=()
+
+_repodir="$(realpath ..)"
+
+package() {
+    install -Dm755 "$_repodir/bin/claude-sandboxed" "$pkgdir/usr/bin/claude-sandboxed"
+    install -Dm644 "$_repodir/share/docker-compose.yml" "$pkgdir/usr/share/claude-sandboxed/docker-compose.yml"
+}
