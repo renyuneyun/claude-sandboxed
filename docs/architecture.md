@@ -9,6 +9,12 @@
 
 Claude Code can be granted `--dangerously-skip-permissions` to operate fully autonomously. Running it inside a container limits the blast radius: it can freely read and write the mounted workspace, but cannot touch the rest of the host filesystem and cannot push to remote repositories.
 
+## Network isolation
+
+**Current status: no network isolation.** The container uses `network_mode: host`, meaning it shares the host's network namespace. This was chosen for simplicity — it allows the container to access host-local services such as a proxy at `127.0.0.1:1080` without extra configuration.
+
+Improving network isolation is a planned future goal. The current focus is on filesystem and git-level sandboxing.
+
 ## Volume layout
 
 | Mount | Container path | Purpose |

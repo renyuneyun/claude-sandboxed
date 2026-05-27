@@ -14,9 +14,10 @@ services:
     working_dir: /workspace
     tty: true
     stdin_open: true
-    # Tells Linux Docker to map 'host.docker.internal' to the host gateway automatically
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # NOTE: host network mode is used for simplicity (e.g. accessing host proxy at 127.0.0.1:7890).
+    # This means the container shares the host's network namespace — there is currently NO network
+    # isolation. Improving network isolation is a future goal; see docs/architecture.md.
+    network_mode: host
     # This runs once on startup to block git pushes globally across all workspaces
     entrypoint: >
       sh -c "
