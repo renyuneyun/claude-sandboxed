@@ -5,6 +5,23 @@ set -e
 export WORKSPACE_DIR="${1:-$(pwd)}"
 export WORKSPACE_DIR=$(cd "$WORKSPACE_DIR" && pwd)
 
+# Claude Code version to run inside the container.
+# Defaults to the version installed on the host to keep credentials compatible.
+# Override with e.g. CLAUDE_VERSION=latest or CLAUDE_VERSION=2.1.152
+CLAUDE_VERSION="${CLAUDE_VERSION:-$(claude --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)}"
+CLAUDE_PACKAGE="@anthropic-ai/claude-code${CLAUDE_VERSION:+@${CLAUDE_VERSION}}"
+
+# User identity mirrored into the container.
+# Override any of these in your environment before invoking the script.
+export SANDBOX_UID="${SANDBOX_UID:-$(id -u)}"
+export SANDBOX_GID="${SANDBOX_GID:-$(id -g)}"
+export SANDBOX_USERNAME="${SANDBOX_USERNAME:-$(id -un)}"
+export SANDBOX_HOME="${SANDBOX_HOME:-/home/${SANDBOX_USERNAME}}"
+
+# Per-user project name keeps containers and volumes isolated on multi-user machines.
+# Each user gets their own container and their own claude-agent-home volume.
+COMPOSE_PROJECT="claude-sandboxed-${SANDBOX_UID}"
+
 # Resolve the data directory relative to this script's install prefix, supporting
 # any layout (/usr, /usr/local, /opt/homebrew, etc.) and direct repo usage.
 # Override by setting CLAUDE_SANDBOXED_DIR in your environment.
@@ -25,9 +42,15 @@ fi
 #docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" down
 
 # Spin up the sandbox services invisibly in the background
-docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" up -d
+docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" up -d
 
 # Execute Claude inside the runtime autonomously
-docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec -it ai-agent npx --yes @anthropic-ai/claude-code --dangerously-skip-permissions
-#docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec -it ai-agent bash
+docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec \
+  --user "${SANDBOX_UID}:${SANDBOX_GID}" \
+  -e HOME="${SANDBOX_HOME}" \
+  -it ai-agent npx --yes "$CLAUDE_PACKAGE" --dangerously-skip-permissions
+#docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec \
+#  --user "${SANDBOX_UID}:${SANDBOX_GID}" \
+#  -e HOME="${SANDBOX_HOME}" \
+#  -it ai-agent bash
 

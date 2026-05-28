@@ -10,6 +10,8 @@ These must not be broken without updating all affected documentation:
 - The git push-blocking entrypoint must remain.
 - The three volume mounts (workspace, home cache, credential pass-through) must remain.
 - `WORKSPACE_DIR` must be exported before `docker compose up` — the compose file interpolates it.
+- `SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_USERNAME`, and `SANDBOX_HOME` must be exported before `docker compose up` — the compose file interpolates them for volume paths and the user-creation entrypoint.
+- All `docker compose` invocations must pass `-p "$COMPOSE_PROJECT"` (set to `claude-sandboxed-${SANDBOX_UID}`) — this namespaces containers and volumes per user, preventing conflicts on multi-user machines.
 - The compose file resolution order must not be reordered without updating the section below.
 
 ## Compose file location resolution

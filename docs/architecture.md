@@ -20,8 +20,9 @@ Improving network isolation is a planned future goal. The current focus is on fi
 | Mount | Container path | Purpose |
 |---|---|---|
 | Workspace arg (or `$PWD`) | `/workspace` | The project Claude works on |
-| Named volume `claude-agent-home` | `/root` | Persists npm cache, global tools, shell history across runs |
-| `~/.claude` (host) | `/root/.claude` | Pass-through for Claude credentials |
+| Named volume `claude-agent-home` | `$SANDBOX_HOME` | Persists npm cache, global tools, shell history across runs |
+| `~/.claude` (host) | `$SANDBOX_HOME/.claude` | Pass-through for Claude Code config and credentials |
+| `~/.claude.json` (host) | `$SANDBOX_HOME/.claude.json` | Pass-through for Claude account/session credentials |
 
 ## Git push protection
 

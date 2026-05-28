@@ -3,14 +3,16 @@ services:
   ai-agent:
     image: node:22-bookworm
     environment:
-      - IS_SANDBOX=1  # Allows --dangerously-skip-permissions under root
+      - IS_SANDBOX=1  # Allows --dangerously-skip-permissions inside the sandbox
+      - ANTHROPIC_API_KEY  # Passed through from host if set; avoids keyring re-auth inside container
     volumes:
       # 1. DYNAMIC MOUNT: Injected dynamically by the wrapper launcher
       - ${WORKSPACE_DIR}:/workspace
       # 2. PERSISTENT CACHE: Saves manual tools, packages, global settings, and histories
-      - claude-agent-home:/root
-      # 3. CC-SWITCH PASS-THROUGH: Links your local credential configurations
-      - ${HOME}/.claude:/root/.claude
+      - claude-agent-home:${SANDBOX_HOME}
+      # 3. CLAUDE CONFIG PASS-THROUGH: Links your local credential configurations
+      - ${HOME}/.claude:${SANDBOX_HOME}/.claude
+      - ${HOME}/.claude.json:${SANDBOX_HOME}/.claude.json
     working_dir: /workspace
     tty: true
     stdin_open: true
@@ -18,15 +20,21 @@ services:
     # This means the container shares the host's network namespace — there is currently NO network
     # isolation. Improving network isolation is a future goal; see docs/architecture.md.
     network_mode: host
-    # This runs once on startup to block git pushes globally across all workspaces
+    # This runs once on startup to:
+    #   1. Create the target user/group (mirroring host UID/GID) so exec'd processes own their files.
+    #   2. Block git pushes globally across all workspaces.
     entrypoint: >
       sh -c "
-      git config --global core.sshCommand 'echo \"[SECURITY] Remote push operations are prohibited inside this sandbox.\" && false' &&
-      git config --global url.'https://prohibited/'.insteadOf 'https://github.com/' &&
-      git config --global url.'https://prohibited/'.insteadOf 'git@github.com:' &&
+      if [ '${SANDBOX_UID}' != '0' ]; then
+      getent group ${SANDBOX_GID} >/dev/null 2>&1 || groupadd -g ${SANDBOX_GID} ${SANDBOX_USERNAME};
+      getent passwd ${SANDBOX_UID} >/dev/null 2>&1 || useradd -u ${SANDBOX_UID} -g ${SANDBOX_GID} -d ${SANDBOX_HOME} -s /bin/bash -M ${SANDBOX_USERNAME};
+      mkdir -p ${SANDBOX_HOME} && chown ${SANDBOX_UID}:${SANDBOX_GID} ${SANDBOX_HOME};
+      fi &&
+      git config --system core.sshCommand 'echo \"[SECURITY] Remote push operations are prohibited inside this sandbox.\" && false' &&
+      git config --system url.'https://prohibited/'.insteadOf 'https://github.com/' &&
+      git config --system url.'https://prohibited/'.insteadOf 'git@github.com:' &&
       tail -f /dev/null
       "
 
 volumes:
   claude-agent-home:
-
