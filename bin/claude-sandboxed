@@ -38,19 +38,10 @@ else
     fi
 fi
 
-# Stop before running to clean up potential issues
-#docker compose -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" down
-
-# Spin up the sandbox services invisibly in the background
-docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" up -d
-
-# Execute Claude inside the runtime autonomously
-docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec \
-  --user "${SANDBOX_UID}:${SANDBOX_GID}" \
+# Run Claude in a one-shot container that is removed automatically on exit.
+# Each invocation gets its own container; named volumes (claude-agent-home) persist across runs.
+docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
+  --rm \
   -e HOME="${SANDBOX_HOME}" \
   -it ai-agent npx --yes "$CLAUDE_PACKAGE" --dangerously-skip-permissions
-#docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" exec \
-#  --user "${SANDBOX_UID}:${SANDBOX_GID}" \
-#  -e HOME="${SANDBOX_HOME}" \
-#  -it ai-agent bash
 

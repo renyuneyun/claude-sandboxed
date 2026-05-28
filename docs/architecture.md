@@ -2,12 +2,16 @@
 
 ## Overview
 
-1. The launcher script starts a Docker Compose service (`ai-agent`) in the background.
-2. It `exec`s into the running container and launches Claude Code with `--dangerously-skip-permissions`.
-3. The container entrypoint configures git globally to block all remote pushes before Claude starts.
-4. On exit, the container keeps running so subsequent invocations are fast.
+1. The launcher runs `docker compose run --rm`, starting a fresh container per invocation.
+2. The container entrypoint runs as root and:
+   a. Creates the target user and group (mirroring host UID/GID) if they do not already exist.
+   b. Configures git system-wide to block all remote pushes.
+   c. Drops to the target user via `runuser` and exec-s Claude Code.
+3. The container is removed automatically on exit (`--rm`); named volumes persist across runs.
 
-Claude Code can be granted `--dangerously-skip-permissions` to operate fully autonomously. Running it inside a container limits the blast radius: it can freely read and write the mounted workspace, but cannot touch the rest of the host filesystem and cannot push to remote repositories.
+Claude Code is granted `--dangerously-skip-permissions` to operate fully autonomously. Running it inside a container limits the blast radius: it can freely read and write the mounted workspace, but cannot touch the rest of the host filesystem and cannot push to remote repositories.
+
+Multiple sessions can run in parallel — each invocation gets its own container. Per-user project naming (`claude-sandboxed-${SANDBOX_UID}`) keeps containers and volumes isolated on multi-user machines.
 
 ## Network isolation
 

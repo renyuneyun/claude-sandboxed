@@ -5,7 +5,7 @@
 These must not be broken without updating all affected documentation:
 
 - `share/docker-compose.yml` must stay at `share/` relative to the repo root (dev-mode detection depends on it).
-- The `ai-agent` service name must not change without updating every `docker compose exec` call in the script.
+- The `ai-agent` service name must not change without updating every `docker compose run` call in the script.
 - `IS_SANDBOX=1` must remain set in the container environment.
 - The git push-blocking entrypoint must remain.
 - The three volume mounts (workspace, home cache, credential pass-through) must remain.

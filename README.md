@@ -65,4 +65,5 @@ SANDBOX_UID=4444 SANDBOX_GID=4444 SANDBOX_USERNAME=ryey claude-sandboxed
 ## Further reading
 
 - [docs/architecture.md](docs/architecture.md) — architecture, volumes, security model
+- [docs/tradeoffs.md](docs/tradeoffs.md) — design decisions: privilege dropping, network isolation, and alternatives
 - [docs/development.md](docs/development.md) — invariants, resolution logic, PKGBUILD notes, test checklist

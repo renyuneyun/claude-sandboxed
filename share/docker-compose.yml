@@ -33,8 +33,8 @@ services:
       git config --system core.sshCommand 'echo \"[SECURITY] Remote push operations are prohibited inside this sandbox.\" && false' &&
       git config --system url.'https://prohibited/'.insteadOf 'https://github.com/' &&
       git config --system url.'https://prohibited/'.insteadOf 'git@github.com:' &&
-      tail -f /dev/null
-      "
+      [ '${SANDBOX_UID}' != '0' ] && exec runuser -u ${SANDBOX_USERNAME} -- \"\$@\" || exec \"\$@\"
+      " --
 
 volumes:
   claude-agent-home:
