@@ -13,6 +13,6 @@ mkdir -p "$BIN_DIR"
 install -m755 "$SCRIPT_DIR/bin/claude-sandboxed" "$BIN_DIR/claude-sandboxed"
 
 mkdir -p "$DATA_DIR"
-install -m644 "$SCRIPT_DIR/share/docker-compose.yml" "$DATA_DIR/docker-compose.yml"
+install -m644 "$SCRIPT_DIR/share/claude-sandboxed/docker-compose.yml" "$DATA_DIR/docker-compose.yml"
 
 echo "Done. Make sure $BIN_DIR is in your PATH."

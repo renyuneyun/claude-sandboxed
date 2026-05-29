@@ -29,13 +29,7 @@ if [[ -n "$CLAUDE_SANDBOXED_DIR" ]]; then
     SANDBOX_COMPOSE_DIR="$CLAUDE_SANDBOXED_DIR"
 else
     _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [[ -f "$_script_dir/../share/docker-compose.yml" ]]; then
-        # Development / repo checkout: script is in bin/, data files are in share/
-        SANDBOX_COMPOSE_DIR="$(cd "$_script_dir/../share" && pwd)"
-    else
-        # Installed: <prefix>/bin/<script> → <prefix>/share/claude-sandboxed
-        SANDBOX_COMPOSE_DIR="$(cd "$_script_dir/../share/claude-sandboxed" && pwd)"
-    fi
+    SANDBOX_COMPOSE_DIR="$(cd "$_script_dir/../share/claude-sandboxed" && pwd)"
 fi
 
 # Run Claude in a one-shot container that is removed automatically on exit.
