@@ -24,7 +24,7 @@ cd claude-sandboxed/packaging
 makepkg -si
 ```
 
-### Any Unix (macOS, WSL, Linux)
+### Any Unix (macOS, WSL, Linux) (To be tested)
 
 ```sh
 git clone <repo-url>
