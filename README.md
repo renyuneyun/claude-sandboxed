@@ -88,7 +88,7 @@ If `ANTHROPIC_API_KEY` is set in your environment it is passed into the containe
     - [x] **Isolated environment and cache** — packages and global tools install into a persistent container volume, never touching the host
     - [x] **Git push protection** — blocks git pushes (SSH and HTTPS to GitHub) to prevent accidental upstream changes
 - [x] **Transparent isolation** — the sandbox boundary is invisible to Claude Code: it sees the same user identity, credentials, paths, and Claude settings as on the host, while the rest of the system stays out of reach
-    - [x] **Credential passthrough** — `~/.claude` credentials and `ANTHROPIC_API_KEY` are forwarded automatically
+    - [x] **Claude config passthrough** — the entire `~/.claude` directory (credentials, skills, settings, etc.) and `ANTHROPIC_API_KEY` are forwarded automatically
     - [x] **Host identity mirroring** — Claude Code runs as your host user (same UID, GID, username, and home path), so file ownership is consistent
     - [x] **Host network access** — the container shares the host network, so host-local services are reachable from inside (e.g. a proxy at `127.0.0.1:1080`, or a network-based MCP server running on the host)
     - [x] **Automatic cleanup** — the container is removed on exit
