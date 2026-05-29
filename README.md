@@ -45,6 +45,8 @@ claude-sandboxed ~/projects/my-app
 
 Set `CLAUDE_SANDBOXED_DIR` to override the directory containing `docker-compose.yml`.
 
+Set `CLAUDE_VERSION` to pin a specific Claude Code version inside the container (e.g. `CLAUDE_VERSION=2.1.152`). Defaults to the version installed on the host.
+
 ## User identity
 
 By default the launcher mirrors your host identity into the container so that files created inside are owned by you outside:
@@ -61,6 +63,14 @@ Override any of them before invoking the script:
 ```sh
 SANDBOX_UID=4444 SANDBOX_GID=4444 SANDBOX_USERNAME=ryey claude-sandboxed
 ```
+
+When `SANDBOX_UID=0`, the container runs as root and the user-creation step is skipped.
+
+## Authentication
+
+Claude Code uses credentials from `~/.claude` and `~/.claude.json`, which are bind-mounted from the host (read/write).
+
+If `ANTHROPIC_API_KEY` is set in your environment it is passed into the container automatically, avoiding keyring re-authentication inside the sandbox.
 
 ## Further reading
 
