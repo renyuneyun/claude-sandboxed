@@ -2,12 +2,18 @@
 
 Runs [Claude Code](https://github.com/anthropics/claude-code) inside a Docker sandbox with a shared workspace mount and git push protection.
 
+The main rationale of this project is to run Claude Code in autonomous mode (with `--dangerously-skip-permissions`) more safely, reducing harms to the user's machine / files. Whitebox protection is the main design, to provide deterministic guarantees (contrary to Anthrophic's probabilistic classifier).
+
+> To be fully transparent: the whitebox protection is not always useful for every case, as it would be too complicated. But I'd prefer it because that provides accountability, something that probabilistic classifiers will not have.
+
 ## Requirements
 
 - Docker with the Compose plugin (`docker compose`)
-- A valid Claude Code session (`~/.claude` credentials)
+- A valid Claude Code session or configuration using external APIs (`~/.claude` credentials)
 
 ## Installation
+
+You may directly run `bin/claude-sandboxed`, but it may change. Proper installation is always preferred.
 
 ### Arch Linux
 
@@ -28,7 +34,7 @@ sudo ./install.sh
 Installs to `/usr/local` by default. Override with `PREFIX`:
 
 ```sh
-PREFIX=~/.local ./install.sh   # no sudo needed
+PREFIX=~/.local ./install.sh   # no sudo needed here
 ```
 
 Any standard `<prefix>/bin` + `<prefix>/share` layout works (Homebrew `/opt/homebrew`, `/usr/local`, `~/.local`, etc.).
@@ -47,7 +53,9 @@ Set `CLAUDE_SANDBOXED_DIR` to override the directory containing `docker-compose.
 
 Set `CLAUDE_VERSION` to pin a specific Claude Code version inside the container (e.g. `CLAUDE_VERSION=2.1.152`). Defaults to the version installed on the host.
 
-## User identity
+## Customization
+
+### User identity
 
 By default the launcher mirrors your host identity into the container so that files created inside are owned by you outside:
 
@@ -66,11 +74,31 @@ SANDBOX_UID=4444 SANDBOX_GID=4444 SANDBOX_USERNAME=ryey claude-sandboxed
 
 When `SANDBOX_UID=0`, the container runs as root and the user-creation step is skipped.
 
-## Authentication
+### Authentication
 
 Claude Code uses credentials from `~/.claude` and `~/.claude.json`, which are bind-mounted from the host (read/write).
 
 If `ANTHROPIC_API_KEY` is set in your environment it is passed into the container automatically, avoiding keyring re-authentication inside the sandbox.
+
+## Features
+
+- [x] **Sandboxed execution** — confines Claude Code to the target workspace, protecting the rest of your system from unintended changes
+    - [x] **Workspace isolation** — only the target project directory is mounted; the rest of the host filesystem is unreachable inside the container
+    - [x] **Isolated environment and cache** — packages and global tools install into a persistent container volume, never touching the host
+    - [x] **Git push protection** — blocks git pushes (SSH and HTTPS to GitHub) to prevent accidental upstream changes
+- [x] **Transparent isolation** — the sandbox boundary is invisible to Claude Code: it sees the same user identity, credentials, paths, and Claude settings as on the host, while the rest of the system stays out of reach
+    - [x] **Credential passthrough** — `~/.claude` credentials and `ANTHROPIC_API_KEY` are forwarded automatically
+    - [x] **Host identity mirroring** — Claude Code runs as your host user (same UID, GID, username, and home path), so file ownership is consistent
+    - [x] **Host network access** — the container shares the host network, so host-local services are reachable from inside (e.g. a proxy at `127.0.0.1:1080`, or a network-based MCP server running on the host)
+    - [x] **Automatic cleanup** — the container is removed on exit
+    - [ ] **Safe passthrough** — safely passthrough files and folders between host and sandbox, such as package caches
+- [x] **Parallel sessions** — each invocation runs as an independent one-shot container, so multiple sandboxed sessions can run concurrently
+- [x] **Pinnable Claude version** — set `CLAUDE_VERSION` to lock a specific Claude Code release inside the container
+- [ ] **Customiztion** — set preferences through config files
+- [ ] **Alternative Claude config and env** — use a dedicated config path for Claude Code for better isolation
+- [ ] **Network isolation** — container has its own network, isolated from the host
+- [ ] **More tools** — support more tools / coding agents apart from Claude Code
+- [ ] **More runtimes** — support other runtimes than Docker
 
 ## Further reading
 
