@@ -6,14 +6,15 @@ services:
       - IS_SANDBOX=1  # Allows --dangerously-skip-permissions inside the sandbox
       - ANTHROPIC_API_KEY  # Passed through from host if set; avoids keyring re-auth inside container
     volumes:
-      # 1. DYNAMIC MOUNT: Injected dynamically by the wrapper launcher
-      - ${WORKSPACE_DIR}:/workspace
+      # 1. DYNAMIC MOUNT: Injected dynamically by the wrapper launcher.
+      #    Mounted at its exact host path so Claude sees the same absolute path as the host.
+      - ${WORKSPACE_DIR}:${WORKSPACE_DIR}
       # 2. PERSISTENT CACHE: Saves manual tools, packages, global settings, and histories
       - claude-agent-home:${SANDBOX_HOME}
       # 3. CLAUDE CONFIG PASS-THROUGH: Links your local credential configurations
       - ${HOME}/.claude:${SANDBOX_HOME}/.claude
       - ${HOME}/.claude.json:${SANDBOX_HOME}/.claude.json
-    working_dir: /workspace
+    working_dir: ${WORKSPACE_DIR}
     tty: true
     stdin_open: true
     # NOTE: host network mode is used for simplicity (e.g. accessing host proxy at 127.0.0.1:7890).
@@ -35,6 +36,24 @@ services:
       git config --system url.'https://prohibited/'.insteadOf 'git@github.com:' &&
       [ '${SANDBOX_UID}' != '0' ] && exec runuser -u ${SANDBOX_USERNAME} -- \"\$@\" || exec \"\$@\"
       " --
+
+  # Removes empty stub directories that Docker created inside the claude-agent-home volume
+  # as mount-point parents for WORKSPACE_DIR. Run after the ai-agent container exits.
+  cleanup:
+    image: busybox
+    volumes:
+      - claude-agent-home:${SANDBOX_HOME}
+    environment:
+      - SANDBOX_HOME
+      - WORKSPACE_DIR
+    entrypoint: >
+      sh -c "
+      _dir=$$(dirname \"$$WORKSPACE_DIR\");
+      while [ \"$$_dir\" != \"$$SANDBOX_HOME\" ] && [ \"$$_dir\" != '/' ]; do
+        rmdir \"$$_dir\" 2>/dev/null || break;
+        _dir=$$(dirname \"$$_dir\");
+      done
+      "
 
 volumes:
   claude-agent-home:

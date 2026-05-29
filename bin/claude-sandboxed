@@ -45,3 +45,15 @@ docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml
   -e HOME="${SANDBOX_HOME}" \
   -it ai-agent npx --yes "$CLAUDE_PACKAGE" --dangerously-skip-permissions
 
+# Clean up empty stub directories that Docker created inside the claude-agent-home volume
+# as mount-point parents for WORKSPACE_DIR. This must run after the main container exits
+# (and its bind mounts are released) using a separate container that mounts only the volume.
+#
+# We walk upward from the parent of WORKSPACE_DIR toward SANDBOX_HOME, removing each
+# directory only if it is empty (rmdir fails silently otherwise, so real data is safe).
+if [[ "$WORKSPACE_DIR" == "$SANDBOX_HOME"/* ]]; then
+  docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
+    --rm \
+    cleanup
+fi
+
