@@ -34,7 +34,7 @@ services:
       git config --system core.sshCommand 'echo \"[SECURITY] Remote push operations are prohibited inside this sandbox.\" && false' &&
       git config --system url.'https://prohibited/'.insteadOf 'https://github.com/' &&
       git config --system url.'https://prohibited/'.insteadOf 'git@github.com:' &&
-      [ '${SANDBOX_UID}' != '0' ] && exec runuser -u ${SANDBOX_USERNAME} -- \"\$@\" || exec \"\$@\"
+      [ '${SANDBOX_UID}' != '0' ] && exec runuser -u ${SANDBOX_USERNAME} -- \"$$@\" || exec \"$$@\"
       " --
 
   # Removes empty stub directories that Docker created inside the claude-agent-home volume
