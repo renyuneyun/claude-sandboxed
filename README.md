@@ -5,6 +5,7 @@ Runs [Claude Code](https://github.com/anthropics/claude-code) inside a Docker sa
 The main rationale of this project is to run Claude Code in autonomous mode (with `--dangerously-skip-permissions`) more safely, reducing harms to the user's machine / files. Whitebox protection is the main design, to provide deterministic guarantees (contrary to Anthrophic's probabilistic classifier).
 
 > To be fully transparent: the whitebox protection is not always useful for every case, as it would be too complicated. But I'd prefer it because that provides accountability, something that probabilistic classifiers will not have.
+> "What can go wrong will go wrong."
 
 ## Requirements
 
