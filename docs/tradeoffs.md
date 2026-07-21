@@ -52,3 +52,45 @@ The current `network_mode: host` approach should be revisited if:
 - A requirement emerges to prevent Claude Code from making arbitrary outbound connections.
 - A user proxy setup makes host networking problematic (e.g. conflicting port bindings).
 - The project moves toward a stricter security model after filesystem sandboxing matures.
+
+---
+
+## Git operation policy: wrapper script vs git aliases vs hooks
+
+### Wrapper script (chosen)
+
+A bash wrapper at `/usr/local/bin/git` (bind-mounted from `share/claude-sandboxed/git-wrapper`) intercepts every `git` invocation. It parses argv, applies a blocklist of destructive subcommands plus flag-level checks, then `exec`s `/usr/bin/git` for allowed commands.
+
+**Why chosen:** Handles flag-level checks naturally (`git commit --amend` blocked while `git commit -m` allowed). Centralised, inspectable, works for all users. Cannot be overridden by user git config.
+
+**Trade-off:** Soft barrier — calling `/usr/bin/git` by absolute path bypasses it. See "Soft barrier vs hard barrier" below.
+
+### Git aliases via `git config --system` (not chosen)
+
+Alias `push`, `reset`, etc. to commands that fail.
+
+**Why not used:** Aliases are bypassable via `git -c alias.push=push push`. Cannot express flag-level checks (`commit --amend` is not a separate alias from `commit`). Does not cover all destructive ops.
+
+### Per-repo git hooks (not chosen)
+
+Install `pre-commit`, `post-rewrite`, etc. in each repo's `.git/hooks`.
+
+**Why not used:** Per-repo (Claude would need to init them). `--no-verify` bypasses most hooks. Does not cover `reset --hard`, `clean`, etc.
+
+---
+
+## Soft barrier vs hard barrier for git operations
+
+### Current: soft barrier (wrapper script)
+
+The wrapper at `/usr/local/bin/git` intercepts `git` invocations. Claude (or any process) can bypass it by calling `/usr/bin/git` directly.
+
+**Why acceptable:** The threat model is accidental damage by Claude, not adversarial bypass. Claude uses `git <subcommand>` — it does not call `/usr/bin/git` by absolute path in normal operation. The existing push protection (system git config) has the same soft-barrier property (user config can override system config).
+
+### Hard barrier options (not implemented)
+
+- `chmod 700 /usr/bin/git` + setuid wrapper binary: blocks non-root access to real git. Requires a compiled setuid binary (setuid scripts don't work on Linux). Significant complexity.
+- AppArmor/SELinux profile: restricts which binaries can execute git. Requires host-level MAC configuration, harms portability.
+- Custom git binary with built-in restrictions: requires building git from source, ongoing maintenance.
+
+Hard barriers are out of scope for the non-adversarial threat model. If the threat model changes (e.g. running untrusted Claude plugins), revisit.

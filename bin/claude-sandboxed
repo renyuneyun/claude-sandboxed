@@ -39,11 +39,23 @@ else
     SANDBOX_COMPOSE_DIR="$(cd "$_script_dir/../share/claude-sandboxed" && pwd)"
 fi
 
+# Git config inheritance: bind-mount host ~/.gitconfig and ~/.config/git/
+# read-only when they exist, so Claude uses the host user's git identity.
+# Conditional mounting avoids Docker creating empty stub dirs on the host.
+GIT_VOLUME_ARGS=()
+if [[ -f "$HOME/.gitconfig" ]]; then
+    GIT_VOLUME_ARGS+=(-v "$HOME/.gitconfig:${SANDBOX_HOME}/.gitconfig:ro")
+fi
+if [[ -d "$HOME/.config/git" ]]; then
+    GIT_VOLUME_ARGS+=(-v "$HOME/.config/git:${SANDBOX_HOME}/.config/git:ro")
+fi
+
 # Run Claude in a one-shot container that is removed automatically on exit.
 # Each invocation gets its own container; named volumes (claude-agent-home) persist across runs.
 docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
   --rm \
   -e HOME="${SANDBOX_HOME}" \
+  "${GIT_VOLUME_ARGS[@]}" \
   -it ai-agent npx --yes "$CLAUDE_PACKAGE" --dangerously-skip-permissions
 
 # Clean up empty stub directories that Docker created inside the claude-agent-home volume

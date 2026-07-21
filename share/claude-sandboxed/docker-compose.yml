@@ -14,6 +14,9 @@ services:
       # 3. CLAUDE CONFIG PASS-THROUGH: Links your local credential configurations
       - ${HOME}/.claude:${SANDBOX_HOME}/.claude
       - ${HOME}/.claude.json:${SANDBOX_HOME}/.claude.json
+      # 4. GIT WRAPPER: Intercepts git calls to block destructive operations.
+      #    Read-only; /usr/local/bin precedes /usr/bin in PATH inside node:22-bookworm.
+      - ./git-wrapper:/usr/local/bin/git:ro
     working_dir: ${WORKSPACE_DIR}
     tty: true
     stdin_open: true

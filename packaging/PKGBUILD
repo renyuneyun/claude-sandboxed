@@ -15,4 +15,5 @@ _repodir="$(realpath ..)"
 package() {
     install -Dm755 "$_repodir/bin/claude-sandboxed" "$pkgdir/usr/bin/claude-sandboxed"
     install -Dm644 "$_repodir/share/claude-sandboxed/docker-compose.yml" "$pkgdir/usr/share/claude-sandboxed/docker-compose.yml"
+    install -Dm755 "$_repodir/share/claude-sandboxed/git-wrapper" "$pkgdir/usr/share/claude-sandboxed/git-wrapper"
 }

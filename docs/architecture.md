@@ -28,6 +28,9 @@ Improving network isolation is a planned future goal. The current focus is on fi
 | Named volume `claude-agent-home` | `$SANDBOX_HOME` | Persists npm cache, global tools, shell history across runs |
 | `~/.claude` (host) | `$SANDBOX_HOME/.claude` | Pass-through for Claude Code config and credentials |
 | `~/.claude.json` (host) | `$SANDBOX_HOME/.claude.json` | Pass-through for Claude account/session credentials |
+| `~/.gitconfig` (host, if exists) | `$SANDBOX_HOME/.gitconfig` | User-level git config (identity, aliases, signing keys) — read-only |
+| `~/.config/git/` (host, if exists) | `$SANDBOX_HOME/.config/git/` | XDG git config, attributes, ignores — read-only |
+| `git-wrapper` (compose dir) | `/usr/local/bin/git` | Git wrapper script (policy enforcement) — read-only |
 
 ## Container environment
 
@@ -42,12 +45,31 @@ Two environment variables are set or forwarded inside the container:
 
 When `SANDBOX_UID=0` the entrypoint skips user and group creation and does not call `runuser` — Claude Code runs directly as root inside the container. This is mainly useful for CI environments where the container already runs as root.
 
-## Git push protection
+## Git config inheritance
 
-The container entrypoint sets these git globals before Claude starts:
+The host user's `~/.gitconfig` and `~/.config/git/` are bind-mounted into the container at the corresponding paths under `$SANDBOX_HOME`, read-only. Mounts are conditional: if the host path does not exist, the mount is skipped (git uses defaults). Read-only prevents Claude from modifying the host's git config.
 
-- `core.sshCommand` → prints a security warning and exits non-zero (blocks SSH-based pushes)
-- `url.'https://prohibited/'.insteadOf 'https://github.com/'` → redirects HTTPS GitHub URLs
-- `url.'https://prohibited/'.insteadOf 'git@github.com:'` → redirects SSH GitHub URLs
+Git config precedence is system < global, so a user's `~/.gitconfig` could override `core.sshCommand` set via `git config --system`. This is acceptable because `git push` is blocked at the wrapper level (see below), and the threat model is accidental damage, not adversarial bypass.
 
-Claude can still commit locally; it simply cannot push to any remote.
+## Git operation policy
+
+A wrapper script at `share/claude-sandboxed/git-wrapper` is bind-mounted to `/usr/local/bin/git` in the container (read-only). The `node:22-bookworm` image's default `PATH` has `/usr/local/bin` before `/usr/bin`, so `git` invocations hit the wrapper. The wrapper parses argv, applies a blocklist of destructive subcommands plus flag-level checks on allowed subcommands, then `exec`s `/usr/bin/git` for allowed commands.
+
+The wrapper does **not** strip user-supplied `-c` flags or `GIT_CONFIG_*` env vars. The defense is that push is blocked at the subcommand level, and `~/.gitconfig` is read-only.
+
+**Bypass via `/usr/bin/git` directly is a known limitation.** See `docs/tradeoffs.md`.
+
+### Blocked operations
+
+- **Fully blocked subcommands:** `push`, `reset`, `rebase`, `filter-branch`, `filter-repo`, `clean`, `config`
+- **Conditionally blocked:** `reflog expire|delete`, `notes remove|prune`, `worktree remove|prune`, `stash drop|clear`, `branch -d|-D|--delete`, `tag -d|--delete|-f|--force`
+- **Flag-level blocks:** `commit --amend|--reset-author`, `checkout -B|-f|--force|-- <pathspec>`, `restore --worktree|-W`, `rm` (without `--cached`), `gc --prune`
+
+### Defense in depth
+
+Two independent layers block `git push`:
+
+1. Entrypoint sets `git config --system core.sshCommand ...` and `url.insteadOf` rules (existing).
+2. Wrapper blocks `git push` at the subcommand level (new).
+
+Either failing leaves the other working.

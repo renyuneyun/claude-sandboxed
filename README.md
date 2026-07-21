@@ -81,12 +81,38 @@ Claude Code uses credentials from `~/.claude` and `~/.claude.json`, which are bi
 
 If `ANTHROPIC_API_KEY` is set in your environment it is passed into the container automatically, avoiding keyring re-authentication inside the sandbox.
 
+### Git policy
+
+Inside the sandbox, `git` is a wrapper script that blocks destructive operations and allows non-destructive / appending-only ones. Blocked operations print `[SECURITY] ...` to stderr and exit non-zero.
+
+**Fully blocked subcommands:** `push`, `reset`, `rebase`, `filter-branch`, `filter-repo`, `clean`, `config`.
+
+**Conditionally blocked subcommands:** `reflog expire|delete`, `notes remove|prune`, `worktree remove|prune`, `stash drop|clear`, `branch -d|-D|--delete`, `tag -d|--delete|-f|--force`.
+
+**Flag-level blocks on allowed subcommands:**
+
+| Subcommand | Blocked flags |
+|---|---|
+| `commit` | `--amend`, `--reset-author` |
+| `checkout` | `-B`, `-f`, `--force`, `-- <pathspec>` |
+| `restore` | `--worktree`, `-W` |
+| `rm` | (without `--cached`) |
+| `gc` | `--prune` |
+
+`git config` is blocked entirely (including reads) because allowing `git config --local` writes would let Claude define an alias like `alias.x = !/usr/bin/git push` that bypasses the wrapper. Use `cat ~/.gitconfig` or `cat .git/config` to read config.
+
+**Known limitations:**
+- The wrapper is a soft barrier. Calling `/usr/bin/git` by absolute path bypasses it. This is consistent with the project's threat model (accidental damage, not adversarial resistance).
+- The wrapper does not strip `-c` flags or `GIT_CONFIG_*` env vars. A command like `git -c alias.x='!/usr/bin/git push' x` would bypass the push block. This is acceptable because push is also blocked by system git config (defense in depth), and the threat model is non-adversarial.
+- Long-flag abbreviations (e.g., `--forc` for `--force`) bypass flag-level checks in subcommands that use exact-match patterns (`commit`, `tag`, `branch`, `checkout`, `restore`). The `rm` and `gc` cases use prefix matching and are not affected. Claude uses full flag names in practice, so this is a low-risk gap.
+
 ## Features
 
 - [x] **Sandboxed execution** — confines Claude Code to the target workspace, protecting the rest of your system from unintended changes
     - [x] **Workspace isolation** — only the target project directory is mounted; the rest of the host filesystem is unreachable inside the container
     - [x] **Isolated environment and cache** — packages and global tools install into a persistent container volume, never touching the host
-    - [x] **Git push protection** — blocks git pushes (SSH and HTTPS to GitHub) to prevent accidental upstream changes
+    - [x] **Git operation policy** — a wrapper script blocks destructive git operations (push, reset, rebase, clean, commit --amend, branch -D, tag -d, etc.) while allowing non-destructive and appending-only operations (commit, add, status, log, fetch, merge, etc.)
+    - [x] **Git config inheritance** — the host user's `~/.gitconfig` and `~/.config/git/` are bind-mounted read-only so Claude commits with the host user's identity
 - [x] **Transparent isolation** — the sandbox boundary is invisible to Claude Code: it sees the same user identity, credentials, paths, and Claude settings as on the host, while the rest of the system stays out of reach
     - [x] **Claude config passthrough** — the entire `~/.claude` directory (credentials, skills, settings, etc.) and `ANTHROPIC_API_KEY` are forwarded automatically
     - [x] **Host identity mirroring** — Claude Code runs as your host user (same UID, GID, username, and home path), so file ownership is consistent
@@ -100,6 +126,16 @@ If `ANTHROPIC_API_KEY` is set in your environment it is passed into the containe
 - [ ] **Network isolation** — container has its own network, isolated from the host
 - [ ] **More tools** — support more tools / coding agents apart from Claude Code
 - [ ] **More runtimes** — support other runtimes than Docker
+
+## Testing
+
+Automated tests live in `tests/`. Run all tests from the repo root:
+
+```sh
+bash tests/run-all.sh
+```
+
+Each subdirectory of `tests/` contains a `test.sh` script for one component. The runner discovers and executes all of them. Tests run on the host (no Docker required) — the git wrapper tests use a stubbed real git binary.
 
 ## Further reading
 

@@ -14,5 +14,6 @@ install -m755 "$SCRIPT_DIR/bin/claude-sandboxed" "$BIN_DIR/claude-sandboxed"
 
 mkdir -p "$DATA_DIR"
 install -m644 "$SCRIPT_DIR/share/claude-sandboxed/docker-compose.yml" "$DATA_DIR/docker-compose.yml"
+install -m755 "$SCRIPT_DIR/share/claude-sandboxed/git-wrapper" "$DATA_DIR/git-wrapper"
 
 echo "Done. Make sure $BIN_DIR is in your PATH."
