@@ -1,0 +1,192 @@
+#!/bin/bash
+# Git wrapper for claude-sandboxed.
+# Blocks destructive git operations (history rewriting, work discarding, pushes).
+# Allows non-destructive and appending-only operations.
+#
+# Set REAL_GIT env var to override the path to the real git binary (for testing).
+
+REAL_GIT="${REAL_GIT:-/usr/bin/git}"
+
+# If no args, pass through (shows git help).
+if [[ $# -eq 0 ]]; then
+    exec "$REAL_GIT"
+fi
+
+# Parse global flags to find the subcommand (first positional arg).
+# Handles value-taking global flags (-C, -c, --git-dir, --work-tree, --namespace,
+# --super-prefix, --config-env); other -X / --X flags are skipped.
+subcommand=""
+subcommand_idx=0
+i=1
+while [[ $i -le $# ]]; do
+    arg="${!i}"
+    case "$arg" in
+        -C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--config-env)
+            # Takes a value in the next arg.
+            ((i += 2))
+            continue
+            ;;
+        -*)
+            # Other global flag, skip.
+            ((i++))
+            continue
+            ;;
+        *)
+            subcommand="$arg"
+            subcommand_idx=$i
+            break
+            ;;
+    esac
+done
+
+# If no subcommand found, pass through (e.g. git --version, git --help).
+if [[ -z "$subcommand" ]]; then
+    exec "$REAL_GIT" "$@"
+fi
+
+# Block helper: print security message and exit 1.
+block() {
+    echo "[SECURITY] $1" >&2
+    exit 1
+}
+
+# --- Policy checks ---
+
+case "$subcommand" in
+    push|reset|rebase|filter-branch|filter-repo|clean|config)
+        block "git $subcommand is blocked by claude-sandboxed."
+        ;;
+    reflog)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            case "${!j}" in
+                expire|delete)
+                    block "git reflog ${!j} is blocked by claude-sandboxed."
+                    ;;
+            esac
+        done
+        ;;
+    notes)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            case "${!j}" in
+                remove|prune)
+                    block "git notes ${!j} is blocked by claude-sandboxed."
+                    ;;
+            esac
+        done
+        ;;
+    worktree)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            case "${!j}" in
+                remove|prune)
+                    block "git worktree ${!j} is blocked by claude-sandboxed."
+                    ;;
+            esac
+        done
+        ;;
+    commit)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            case "${!j}" in
+                --amend|--reset-author)
+                    block "git commit ${!j} is blocked by claude-sandboxed."
+                    ;;
+            esac
+        done
+        ;;
+    tag)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            arg="${!j}"
+            case "$arg" in
+                --delete|--force)
+                    block "git tag $arg is blocked by claude-sandboxed."
+                    ;;
+                -[!-]*)
+                    if [[ "$arg" == *[df]* ]]; then
+                        block "git tag $arg is blocked by claude-sandboxed."
+                    fi
+                    ;;
+            esac
+        done
+        ;;
+    branch)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            arg="${!j}"
+            case "$arg" in
+                --delete)
+                    block "git branch $arg is blocked by claude-sandboxed."
+                    ;;
+                -[!-]*)
+                    if [[ "$arg" == *[dD]* ]]; then
+                        block "git branch $arg is blocked by claude-sandboxed."
+                    fi
+                    ;;
+            esac
+        done
+        ;;
+    stash)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            case "${!j}" in
+                drop|clear)
+                    block "git stash ${!j} is blocked by claude-sandboxed."
+                    ;;
+            esac
+        done
+        ;;
+    checkout)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            arg="${!j}"
+            case "$arg" in
+                --force)
+                    block "git checkout $arg is blocked by claude-sandboxed."
+                    ;;
+                --)
+                    block "git checkout -- <pathspec> is blocked by claude-sandboxed."
+                    ;;
+                -[!-]*)
+                    if [[ "$arg" == *[Bf]* ]]; then
+                        block "git checkout $arg is blocked by claude-sandboxed."
+                    fi
+                    ;;
+            esac
+        done
+        ;;
+    restore)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            arg="${!j}"
+            case "$arg" in
+                --worktree)
+                    block "git restore $arg is blocked by claude-sandboxed."
+                    ;;
+                -[!-]*)
+                    if [[ "$arg" == *W* ]]; then
+                        block "git restore $arg is blocked by claude-sandboxed."
+                    fi
+                    ;;
+            esac
+        done
+        ;;
+    rm)
+        has_cached=false
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            case "${!j}" in
+                --cac*)
+                    has_cached=true
+                    ;;
+            esac
+        done
+        if ! $has_cached; then
+            block "git rm without --cached is blocked by claude-sandboxed."
+        fi
+        ;;
+    gc)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            case "${!j}" in
+                --pru*)
+                    block "git gc ${!j} is blocked by claude-sandboxed."
+                    ;;
+            esac
+        done
+        ;;
+esac
+
+# All checks passed, exec real git.
+exec "$REAL_GIT" "$@"
