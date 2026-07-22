@@ -11,6 +11,7 @@ The main rationale of this project is to run Claude Code in autonomous mode (wit
 
 - Docker with the Compose plugin (`docker compose`)
 - A valid Claude Code session or configuration using external APIs (`~/.claude` credentials)
+- `yq` (only if using config files - see [Configuration](#configuration))
 
 ## Installation
 
@@ -55,6 +56,41 @@ Set `CLAUDE_SANDBOXED_DIR` to override the directory containing `docker-compose.
 Set `CLAUDE_VERSION` to pin a specific Claude Code version inside the container (e.g. `CLAUDE_VERSION=2.1.152`). Defaults to the version installed on the host.
 
 ## Customization
+
+### Configuration
+
+Identity knobs can be set persistently via YAML config files instead of env vars. Two files are read, in priority order:
+
+| File | Purpose |
+|---|---|
+| `$WORKSPACE_DIR/.claude-sandboxed.yaml` | Per-project override |
+| `${XDG_CONFIG_HOME:-~/.config}/claude-sandboxed/config.yaml` | User defaults |
+
+Both files are optional. Precedence per knob: env var > workspace config > user config > built-in default.
+
+Schema (all fields optional):
+
+```yaml
+sandbox:
+  uid: 1000          # integer, default: $(id -u)
+  gid: 1000          # integer, default: $(id -g)
+  username: ryey     # string,  default: $(id -un)
+  home: /home/ryey   # string,  default: /home/$username
+```
+
+Example `~/.config/claude-sandboxed/config.yaml`:
+
+```yaml
+sandbox:
+  username: claude-bot
+  home: /home/claude-bot
+```
+
+Requires `yq` on the host. Either implementation works:
+- **mikefarah's Go `yq`** - `go-yq` on Arch, `brew install yq` on macOS, or [download the binary](https://github.com/mikefarah/yq/releases)
+- **kislyuk's Python `yq`** - `yq` on Arch, `pip install yq`
+
+If `yq` is not installed, config files are ignored and env vars / defaults are used instead. A warning is printed to stderr when a config file exists but `yq` is missing. Malformed YAML files are also skipped with a warning.
 
 ### User identity
 
@@ -120,14 +156,19 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [x] **Host identity mirroring** — Claude Code runs as your host user (same UID, GID, username, and home path), so file ownership is consistent
     - [x] **Host network access** — the container shares the host network, so host-local services are reachable from inside (e.g. a proxy at `127.0.0.1:1080`, or a network-based MCP server running on the host)
     - [x] **Automatic cleanup** — the container is removed on exit
+    - [ ] **Additional mountpoints** — Additional paths to mount into the container
+        - [ ] Mechanism with manual switches
+        - [ ] Automatic-sensing / Intelligent-sensing by trying to predict what might be needed (e.g. git worktree)
     - [ ] **Safe passthrough** — safely passthrough files and folders between host and sandbox, such as package caches
 - [x] **Parallel sessions** — each invocation runs as an independent one-shot container, so multiple sandboxed sessions can run concurrently
 - [x] **Pinnable Claude version** — set `CLAUDE_VERSION` to lock a specific Claude Code release inside the container
 - [ ] **Automated tests**
-- [ ] **Customiztion** — set preferences through config files (with docs and examples)
+- [ ] **Customization** — set preferences through config files (with docs and examples)
+    - [x] **Config foundation** — YAML config loading (`yq`), env > workspace > user > default precedence, identity knobs (`sandbox_uid`/`gid`/`username`/`home`)
     - [ ] All isolation designs should be customizable
     - [ ] Git operation policy
     - [ ] Git config
+    - [ ] Additional paths
 - [ ] **Alternative Claude config and env** — use a dedicated config path for Claude Code for better isolation
 - [ ] **Network isolation** — container has its own network, isolated from the host
 - [ ] **More tools** — support more tools / coding agents apart from Claude Code
