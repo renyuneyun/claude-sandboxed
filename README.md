@@ -114,6 +114,7 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [x] **Isolated environment and cache** — packages and global tools install into a persistent container volume, never touching the host
     - [x] **Git operation policy** — a wrapper script blocks destructive git operations (push, reset, rebase, clean, commit --amend, branch -D, tag -f, etc.) while allowing non-destructive and appending-only operations (commit, add, status, log, fetch, merge, branch -d, tag -d, etc.)
     - [x] **Git config inheritance** — the host user's `~/.gitconfig` and `~/.config/git/` are bind-mounted read-only so Claude commits with the host user's identity
+    - [ ] **Sandbox information** — Allow the runtime (Claude Code, e.g.) to see that it's in the sandbox rather than on host system (later configurable)
 - [x] **Transparent isolation** — the sandbox boundary is invisible to Claude Code: it sees the same user identity, credentials, paths, and Claude settings as on the host, while the rest of the system stays out of reach
     - [x] **Claude config passthrough** — the entire `~/.claude` directory (credentials, skills, settings, etc.) and `ANTHROPIC_API_KEY` are forwarded automatically
     - [x] **Host identity mirroring** — Claude Code runs as your host user (same UID, GID, username, and home path), so file ownership is consistent
@@ -122,7 +123,11 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [ ] **Safe passthrough** — safely passthrough files and folders between host and sandbox, such as package caches
 - [x] **Parallel sessions** — each invocation runs as an independent one-shot container, so multiple sandboxed sessions can run concurrently
 - [x] **Pinnable Claude version** — set `CLAUDE_VERSION` to lock a specific Claude Code release inside the container
-- [ ] **Customiztion** — set preferences through config files
+- [ ] **Automated tests**
+- [ ] **Customiztion** — set preferences through config files (with docs and examples)
+    - [ ] All isolation designs should be customizable
+    - [ ] Git operation policy
+    - [ ] Git config
 - [ ] **Alternative Claude config and env** — use a dedicated config path for Claude Code for better isolation
 - [ ] **Network isolation** — container has its own network, isolated from the host
 - [ ] **More tools** — support more tools / coding agents apart from Claude Code
