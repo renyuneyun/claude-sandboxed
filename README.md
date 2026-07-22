@@ -95,6 +95,7 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
 |---|---|
 | `commit` | `--amend`, `--reset-author` |
 | `checkout` | `-B`, `-f`, `--force`, `-- <pathspec>` |
+| `switch` | `-C`, `--discard-changes` |
 | `restore` | `--worktree`, `-W` |
 | `rm` | (without `--cached`) |
 | `gc` | `--prune` |
@@ -111,7 +112,7 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
 - [x] **Sandboxed execution** — confines Claude Code to the target workspace, protecting the rest of your system from unintended changes
     - [x] **Workspace isolation** — only the target project directory is mounted; the rest of the host filesystem is unreachable inside the container
     - [x] **Isolated environment and cache** — packages and global tools install into a persistent container volume, never touching the host
-    - [x] **Git operation policy** — a wrapper script blocks destructive git operations (push, reset, rebase, clean, commit --amend, branch -D, tag -d, etc.) while allowing non-destructive and appending-only operations (commit, add, status, log, fetch, merge, etc.)
+    - [x] **Git operation policy** — a wrapper script blocks destructive git operations (push, reset, rebase, clean, commit --amend, branch -D, tag -f, etc.) while allowing non-destructive and appending-only operations (commit, add, status, log, fetch, merge, branch -d, tag -d, etc.)
     - [x] **Git config inheritance** — the host user's `~/.gitconfig` and `~/.config/git/` are bind-mounted read-only so Claude commits with the host user's identity
 - [x] **Transparent isolation** — the sandbox boundary is invisible to Claude Code: it sees the same user identity, credentials, paths, and Claude settings as on the host, while the rest of the system stays out of reach
     - [x] **Claude config passthrough** — the entire `~/.claude` directory (credentials, skills, settings, etc.) and `ANTHROPIC_API_KEY` are forwarded automatically

@@ -123,15 +123,19 @@ assert_blocked "git commit --amend --no-edit" commit --amend --no-edit
 assert_blocked "git commit --reset-author" commit --reset-author
 assert_allowed "git commit -m test" commit -m test
 assert_allowed "git commit -am test" commit -am test
-assert_blocked "git tag -d v1" tag -d v1
-assert_blocked "git tag --delete v1" tag --delete v1
+assert_allowed "git tag -d v1" tag -d v1
+assert_allowed "git tag --delete v1" tag --delete v1
 assert_blocked "git tag -f v1" tag -f v1
 assert_blocked "git tag --force v1" tag --force v1
+assert_blocked "git tag --delete --force v1" tag --delete --force v1
 assert_allowed "git tag v1" tag v1
 assert_allowed "git tag -a v1 -m msg" tag -a v1 -m msg
-assert_blocked "git branch -d feature" branch -d feature
+assert_allowed "git branch -d feature" branch -d feature
 assert_blocked "git branch -D feature" branch -D feature
-assert_blocked "git branch --delete feature" branch --delete feature
+assert_allowed "git branch --delete feature" branch --delete feature
+assert_blocked "git branch --delete --force feature" branch --delete --force feature
+assert_blocked "git branch --force --delete feature" branch --force --delete feature
+assert_blocked "git branch -d -f feature" branch -d -f feature
 assert_allowed "git branch feature" branch feature
 assert_allowed "git branch -a" branch -a
 
@@ -170,6 +174,21 @@ assert_blocked "git restore -WS file.txt" restore -WS file.txt
 # Task 5: subcommand-alone boundary case
 assert_allowed "git checkout (no args)" checkout
 assert_allowed "git restore (no args)" restore
+
+# Task 5b: flag-level blocks (switch)
+assert_blocked "git switch -C main" switch -C main
+assert_blocked "git switch --discard-changes main" switch --discard-changes main
+assert_allowed "git switch main" switch main
+assert_allowed "git switch -c feature" switch -c feature
+assert_allowed "git switch --detach HEAD" switch --detach HEAD
+# Task 5b: combined short flags (bypass prevention)
+assert_blocked "git switch -Cc feature" switch -Cc feature
+assert_blocked "git switch -cC feature" switch -cC feature
+# Task 5b: long-flag abbreviation
+assert_blocked "git switch --discard main" switch --discard main
+assert_allowed "git switch --det HEAD" switch --det HEAD
+# Task 5b: subcommand-alone boundary case
+assert_allowed "git switch (no args)" switch
 
 # Task 6: flag-level blocks (rm, gc)
 assert_blocked "git rm file.txt" rm file.txt

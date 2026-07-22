@@ -93,34 +93,49 @@ case "$subcommand" in
         done
         ;;
     tag)
+        # Block any force form (-f, --force, -df, --delete --force).
+        # Safe delete (-d, --delete without force) is allowed: the tagged
+        # commit stays in the object db and reflog; gc --prune is blocked.
+        has_force=false
         for ((j=subcommand_idx+1; j<=$#; j++)); do
             arg="${!j}"
             case "$arg" in
-                --delete|--force)
-                    block "git tag $arg is blocked by claude-sandboxed."
+                --force)
+                    has_force=true
                     ;;
                 -[!-]*)
-                    if [[ "$arg" == *[df]* ]]; then
-                        block "git tag $arg is blocked by claude-sandboxed."
-                    fi
+                    [[ "$arg" == *f* ]] && has_force=true
                     ;;
             esac
         done
+        if $has_force; then
+            block "git tag --force is blocked by claude-sandboxed."
+        fi
         ;;
     branch)
+        # Block force delete (-D, -df, --delete --force) but allow safe
+        # delete (-d, --delete): git itself refuses to delete unmerged
+        # branches with -d, and commits stay recoverable via reflog.
+        has_delete=false
+        has_force=false
         for ((j=subcommand_idx+1; j<=$#; j++)); do
             arg="${!j}"
             case "$arg" in
                 --delete)
-                    block "git branch $arg is blocked by claude-sandboxed."
+                    has_delete=true
+                    ;;
+                --force)
+                    has_force=true
                     ;;
                 -[!-]*)
-                    if [[ "$arg" == *[dD]* ]]; then
-                        block "git branch $arg is blocked by claude-sandboxed."
-                    fi
+                    [[ "$arg" == *[dD]* ]] && has_delete=true
+                    [[ "$arg" == *[Df]* ]] && has_force=true
                     ;;
             esac
         done
+        if $has_delete && $has_force; then
+            block "git branch --delete --force is blocked by claude-sandboxed."
+        fi
         ;;
     stash)
         for ((j=subcommand_idx+1; j<=$#; j++)); do
@@ -159,6 +174,21 @@ case "$subcommand" in
                 -[!-]*)
                     if [[ "$arg" == *W* ]]; then
                         block "git restore $arg is blocked by claude-sandboxed."
+                    fi
+                    ;;
+            esac
+        done
+        ;;
+    switch)
+        for ((j=subcommand_idx+1; j<=$#; j++)); do
+            arg="${!j}"
+            case "$arg" in
+                --dis*)
+                    block "git switch $arg is blocked by claude-sandboxed."
+                    ;;
+                -[!-]*)
+                    if [[ "$arg" == *C* ]]; then
+                        block "git switch $arg is blocked by claude-sandboxed."
                     fi
                     ;;
             esac

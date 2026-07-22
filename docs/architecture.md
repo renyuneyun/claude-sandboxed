@@ -62,8 +62,8 @@ The wrapper does **not** strip user-supplied `-c` flags or `GIT_CONFIG_*` env va
 ### Blocked operations
 
 - **Fully blocked subcommands:** `push`, `reset`, `rebase`, `filter-branch`, `filter-repo`, `clean`, `config`
-- **Conditionally blocked:** `reflog expire|delete`, `notes remove|prune`, `worktree remove|prune`, `stash drop|clear`, `branch -d|-D|--delete`, `tag -d|--delete|-f|--force`
-- **Flag-level blocks:** `commit --amend|--reset-author`, `checkout -B|-f|--force|-- <pathspec>`, `restore --worktree|-W`, `rm` (without `--cached`), `gc --prune`
+- **Conditionally blocked:** `reflog expire|delete`, `notes remove|prune`, `worktree remove|prune`, `stash drop|clear`, `branch -D|--delete --force` (force delete; safe `-d`/`--delete` allowed), `tag -f|--force` (force; safe `-d`/`--delete` allowed)
+- **Flag-level blocks:** `commit --amend|--reset-author`, `checkout -B|-f|--force|-- <pathspec>`, `switch -C|--discard-changes`, `restore --worktree|-W`, `rm` (without `--cached`), `gc --prune`
 
 ### Defense in depth
 

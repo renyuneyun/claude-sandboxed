@@ -27,6 +27,8 @@ services:
     # This runs once on startup to:
     #   1. Create the target user/group (mirroring host UID/GID) so exec'd processes own their files.
     #   2. Block git pushes globally across all workspaces.
+    # Uses /usr/bin/git (not git) for config --system: the wrapper at /usr/local/bin/git blocks
+    # the config subcommand, which would break the && chain and skip the runuser step (running as root).
     entrypoint: >
       sh -c "
       if [ '${SANDBOX_UID}' != '0' ]; then
@@ -34,9 +36,9 @@ services:
       getent passwd ${SANDBOX_UID} >/dev/null 2>&1 || useradd -u ${SANDBOX_UID} -g ${SANDBOX_GID} -d ${SANDBOX_HOME} -s /bin/bash -M ${SANDBOX_USERNAME};
       mkdir -p ${SANDBOX_HOME} && chown ${SANDBOX_UID}:${SANDBOX_GID} ${SANDBOX_HOME};
       fi &&
-      git config --system core.sshCommand 'echo \"[SECURITY] Remote push operations are prohibited inside this sandbox.\" && false' &&
-      git config --system url.'https://prohibited/'.insteadOf 'https://github.com/' &&
-      git config --system url.'https://prohibited/'.insteadOf 'git@github.com:' &&
+      /usr/bin/git config --system core.sshCommand 'echo \"[SECURITY] Remote push operations are prohibited inside this sandbox.\" && false' &&
+      /usr/bin/git config --system url.'https://prohibited/'.insteadOf 'https://github.com/' &&
+      /usr/bin/git config --system url.'https://prohibited/'.insteadOf 'git@github.com:' &&
       [ '${SANDBOX_UID}' != '0' ] && exec runuser -u ${SANDBOX_USERNAME} -- \"$$@\" || exec \"$$@\"
       " --
 
