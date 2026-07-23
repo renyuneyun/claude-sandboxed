@@ -68,6 +68,15 @@ Identity knobs can be set persistently via YAML config files instead of env vars
 
 Both files are optional. Precedence per knob: env var > workspace config > user config > built-in default.
 
+A commented template is installed at `<prefix>/share/claude-sandboxed/config.example.yaml` (e.g. `/usr/local/share/claude-sandboxed/config.example.yaml`). Copy it to get started:
+
+```sh
+mkdir -p ~/.config/claude-sandboxed
+cp /usr/local/share/claude-sandboxed/config.example.yaml ~/.config/claude-sandboxed/config.yaml
+```
+
+Edit the copy, uncommenting the lines you want to change. All fields are commented out by default, so the copied file has no effect until you edit it.
+
 Schema (all fields optional):
 
 ```yaml

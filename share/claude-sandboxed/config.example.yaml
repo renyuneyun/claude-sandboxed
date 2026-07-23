@@ -1,0 +1,14 @@
+# claude-sandboxed configuration file
+#
+# Copy this file to one of these locations:
+#   ${XDG_CONFIG_HOME:-~/.config}/claude-sandboxed/config.yaml   (user defaults)
+#   $WORKSPACE_DIR/.claude-sandboxed.yaml                         (per-project override)
+#
+# All fields are optional. Uncomment and edit the values you want to change.
+# Precedence per knob: env var > workspace config > user config > built-in default.
+
+sandbox:
+  # uid: 1000          # default: $(id -u)
+  # gid: 1000          # default: $(id -g)
+  # username: ryey     # default: $(id -un)
+  # home: /home/ryey   # default: /home/$username
