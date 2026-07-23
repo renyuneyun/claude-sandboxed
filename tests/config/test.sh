@@ -173,6 +173,129 @@ else
     bad "resolve: empty string value falls through (got '$result')"
 fi
 
+# --- resolve tests for git config paths ---
+
+# Setup: create config files with git sections for the new tests
+printf 'git:\n  identity:\n    name: workspace-name\n    email: workspace@example.com\n  host_config_passthrough: false\n' > "$TMPDIR/git-workspace.yaml"
+printf 'git:\n  identity:\n    name: user-name\n    email: user@example.com\n  host_config_passthrough: true\n' > "$TMPDIR/git-user.yaml"
+
+# Test: git.identity.name - env var wins
+SANDBOX_GIT_IDENTITY_NAME=env-name
+WORKSPACE_CONFIG="$TMPDIR/git-workspace.yaml"
+USER_CONFIG="$TMPDIR/git-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_IDENTITY_NAME .git.identity.name "")
+if [[ "$result" == "env-name" ]]; then
+    ok "resolve: git.identity.name env var wins"
+else
+    bad "resolve: git.identity.name env var wins (got '$result')"
+fi
+
+# Test: git.identity.name - workspace wins over user (no env)
+unset SANDBOX_GIT_IDENTITY_NAME
+WORKSPACE_CONFIG="$TMPDIR/git-workspace.yaml"
+USER_CONFIG="$TMPDIR/git-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_IDENTITY_NAME .git.identity.name "")
+if [[ "$result" == "workspace-name" ]]; then
+    ok "resolve: git.identity.name workspace wins over user"
+else
+    bad "resolve: git.identity.name workspace wins over user (got '$result')"
+fi
+
+# Test: git.identity.name - user fills gap when workspace absent
+unset SANDBOX_GIT_IDENTITY_NAME
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/git-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_IDENTITY_NAME .git.identity.name "")
+if [[ "$result" == "user-name" ]]; then
+    ok "resolve: git.identity.name user fills gap when workspace absent"
+else
+    bad "resolve: git.identity.name user fills gap (got '$result')"
+fi
+
+# Test: git.identity.name - empty default when nothing set
+unset SANDBOX_GIT_IDENTITY_NAME
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve SANDBOX_GIT_IDENTITY_NAME .git.identity.name "")
+if [[ "$result" == "" ]]; then
+    ok "resolve: git.identity.name empty default when nothing set"
+else
+    bad "resolve: git.identity.name empty default (got '$result')"
+fi
+
+# Test: git.identity.email - workspace value via yq path
+unset SANDBOX_GIT_IDENTITY_EMAIL
+WORKSPACE_CONFIG="$TMPDIR/git-workspace.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=false
+result=$(resolve SANDBOX_GIT_IDENTITY_EMAIL .git.identity.email "")
+if [[ "$result" == "workspace@example.com" ]]; then
+    ok "resolve: git.identity.email workspace value"
+else
+    bad "resolve: git.identity.email workspace value (got '$result')"
+fi
+
+# Test: git.host_config_passthrough - default is "true"
+unset SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH .git.host_config_passthrough true)
+if [[ "$result" == "true" ]]; then
+    ok "resolve: git.host_config_passthrough default true"
+else
+    bad "resolve: git.host_config_passthrough default (got '$result')"
+fi
+
+# Test: git.host_config_passthrough - env var "false" wins
+SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH=false
+WORKSPACE_CONFIG="$TMPDIR/git-workspace.yaml"
+USER_CONFIG="$TMPDIR/git-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH .git.host_config_passthrough true)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: git.host_config_passthrough env var false wins"
+else
+    bad "resolve: git.host_config_passthrough env false (got '$result')"
+fi
+
+# Test: git.host_config_passthrough - workspace "false" when no env
+unset SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH
+WORKSPACE_CONFIG="$TMPDIR/git-workspace.yaml"
+USER_CONFIG="$TMPDIR/git-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH .git.host_config_passthrough true)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: git.host_config_passthrough workspace false (no env)"
+else
+    bad "resolve: git.host_config_passthrough workspace false (got '$result')"
+fi
+
+# Test: git.host_config_passthrough - user "true" wins over default when workspace absent
+unset SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/git-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH .git.host_config_passthrough false)
+if [[ "$result" == "true" ]]; then
+    ok "resolve: git.host_config_passthrough user true beats false default"
+else
+    bad "resolve: git.host_config_passthrough user true (got '$result')"
+fi
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]] || exit 1

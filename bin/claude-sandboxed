@@ -71,6 +71,14 @@ export SANDBOX_GID="$(resolve SANDBOX_GID .sandbox.gid "$(id -g)")"
 export SANDBOX_USERNAME="$(resolve SANDBOX_USERNAME .sandbox.username "$(id -un)")"
 export SANDBOX_HOME="$(resolve SANDBOX_HOME .sandbox.home "/home/$SANDBOX_USERNAME")"
 
+# Git identity and host-config passthrough.
+# Not exported: these are consumed only by this launcher to build -e / -v flags
+# for `docker compose run`. The compose file does not interpolate them, so they
+# do NOT belong on the "must be exported" invariant list in docs/development.md.
+SANDBOX_GIT_IDENTITY_NAME="$(resolve SANDBOX_GIT_IDENTITY_NAME .git.identity.name "")"
+SANDBOX_GIT_IDENTITY_EMAIL="$(resolve SANDBOX_GIT_IDENTITY_EMAIL .git.identity.email "")"
+SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH="$(resolve SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH .git.host_config_passthrough true)"
+
 # Per-user project name keeps containers and volumes isolated on multi-user machines.
 # Each user gets their own container and their own claude-agent-home volume.
 COMPOSE_PROJECT="claude-sandboxed-${SANDBOX_UID}"
@@ -86,14 +94,30 @@ else
 fi
 
 # Git config inheritance: bind-mount host ~/.gitconfig and ~/.config/git/
-# read-only when they exist, so Claude uses the host user's git identity.
-# Conditional mounting avoids Docker creating empty stub dirs on the host.
+# read-only when they exist AND host_config_passthrough is true, so Claude
+# uses the host user's git identity. Conditional mounting avoids Docker
+# creating empty stub dirs on the host.
 GIT_VOLUME_ARGS=()
-if [[ -f "$HOME/.gitconfig" ]]; then
-    GIT_VOLUME_ARGS+=(-v "$HOME/.gitconfig:${SANDBOX_HOME}/.gitconfig:ro")
+if [[ "$SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH" == "true" ]]; then
+    if [[ -f "$HOME/.gitconfig" ]]; then
+        GIT_VOLUME_ARGS+=(-v "$HOME/.gitconfig:${SANDBOX_HOME}/.gitconfig:ro")
+    fi
+    if [[ -d "$HOME/.config/git" ]]; then
+        GIT_VOLUME_ARGS+=(-v "$HOME/.config/git:${SANDBOX_HOME}/.config/git:ro")
+    fi
 fi
-if [[ -d "$HOME/.config/git" ]]; then
-    GIT_VOLUME_ARGS+=(-v "$HOME/.config/git:${SANDBOX_HOME}/.config/git:ro")
+
+# Git identity overrides: passed as -e flags so they only appear when set.
+# Listing them in docker-compose.yml environment: would leak host GIT_AUTHOR_*
+# into the container when config doesn't set them - the opposite of what we want.
+GIT_ENV_ARGS=()
+if [[ -n "$SANDBOX_GIT_IDENTITY_NAME" ]]; then
+    GIT_ENV_ARGS+=(-e GIT_AUTHOR_NAME="$SANDBOX_GIT_IDENTITY_NAME")
+    GIT_ENV_ARGS+=(-e GIT_COMMITTER_NAME="$SANDBOX_GIT_IDENTITY_NAME")
+fi
+if [[ -n "$SANDBOX_GIT_IDENTITY_EMAIL" ]]; then
+    GIT_ENV_ARGS+=(-e GIT_AUTHOR_EMAIL="$SANDBOX_GIT_IDENTITY_EMAIL")
+    GIT_ENV_ARGS+=(-e GIT_COMMITTER_EMAIL="$SANDBOX_GIT_IDENTITY_EMAIL")
 fi
 
 # Run Claude in a one-shot container that is removed automatically on exit.
@@ -101,6 +125,7 @@ fi
 docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
   --rm \
   -e HOME="${SANDBOX_HOME}" \
+  "${GIT_ENV_ARGS[@]}" \
   "${GIT_VOLUME_ARGS[@]}" \
   -it ai-agent npx --yes "$CLAUDE_PACKAGE" --dangerously-skip-permissions
 
