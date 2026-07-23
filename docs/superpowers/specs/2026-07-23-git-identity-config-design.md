@@ -51,7 +51,7 @@ Git's env-var precedence is above any config file (system < global < local < env
 
 **Why `-e` flags instead of `environment:` entries in `docker-compose.yml`:** Listing `GIT_AUTHOR_NAME` in `environment:` with no value means "pass through from host env". That would leak the host's `GIT_AUTHOR_NAME` into the sandbox when config doesn't set it - the opposite of what we want. Using `-e` on `docker compose run` means the var only appears when the launcher explicitly sets it.
 
-**Caveat:** `git config user.name` (the command) still reports the value from `~/.gitconfig` when passthrough is on. Env vars affect commit authorship, not `git config --get`. Documented in the README. Claude commits via `git commit`, which uses env vars, so this is a narrow cosmetic issue.
+**Caveat:** `git config user.name` (the command) only reads config files - it ignores `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` env vars. So when `host_config_passthrough: true` and identity is overridden, `git config user.name` still prints the host's value from `~/.gitconfig`. Commits are still authored correctly (env vars win for commit authorship), but introspection via `git config` is misleading. `git var GIT_AUTHOR_IDENT` is the one git command that does respect the env vars. Claude commits via `git commit`, which uses env vars, so this is a narrow cosmetic issue. Documented in the README.
 
 ### Host-config passthrough: conditional mount
 
