@@ -12,3 +12,20 @@ sandbox:
   # gid: 1000          # default: $(id -g)
   # username: ryey     # default: $(id -un)
   # home: /home/ryey   # default: /home/$username
+
+git:
+  # Identity overrides applied via GIT_AUTHOR_NAME / GIT_COMMITTER_NAME /
+  # GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL env vars inside the container.
+  # When unset, git uses whatever user.name / user.email it finds in the
+  # container (from host_config_passthrough or git's defaults).
+  #
+  # Note: `git config user.name` (the command) ignores these env vars - it
+  # reads config files only. Commits are still authored correctly; only
+  # introspection via `git config` is affected. `git var GIT_AUTHOR_IDENT`
+  # is the one command that does respect the env vars.
+  identity:
+    # name: claude-bot
+    # email: bot@example.com
+  # When false, host ~/.gitconfig and ~/.config/git/ are not mounted into
+  # the container. Default: true (preserves host git identity inheritance).
+  # host_config_passthrough: true

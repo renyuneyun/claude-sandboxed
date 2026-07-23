@@ -85,6 +85,12 @@ sandbox:
   gid: 1000          # integer, default: $(id -g)
   username: ryey     # string,  default: $(id -un)
   home: /home/ryey   # string,  default: /home/$username
+
+git:
+  identity:
+    name: claude-bot     # string,  default: "" (not set - inherit)
+    email: bot@example.com  # string,  default: "" (not set)
+  host_config_passthrough: true  # bool, default: true
 ```
 
 Example `~/.config/claude-sandboxed/config.yaml`:
@@ -119,6 +125,31 @@ SANDBOX_UID=4444 SANDBOX_GID=4444 SANDBOX_USERNAME=ryey claude-sandboxed
 ```
 
 When `SANDBOX_UID=0`, the container runs as root and the user-creation step is skipped.
+
+### Git identity
+
+Two knobs control git identity inside the sandbox:
+
+| Knob | Default | Description |
+|---|---|---|
+| `git.identity.name` | `""` (unset) | Overrides `user.name` via `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` env vars |
+| `git.identity.email` | `""` (unset) | Overrides `user.email` via `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_EMAIL` env vars |
+| `git.host_config_passthrough` | `true` | When `false`, host `~/.gitconfig` and `~/.config/git/` are not mounted |
+
+Env var overrides: `SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH`. Same precedence as identity knobs: env > workspace config > user config > default.
+
+**How identity is applied:** when `git.identity.name` is set, the launcher passes `-e GIT_AUTHOR_NAME=...` and `-e GIT_COMMITTER_NAME=...` to `docker compose run` (same for email). Git's env-var precedence is above any config file, so the override takes effect regardless of whether host `~/.gitconfig` is mounted.
+
+**Combinations:**
+
+| `identity` | `host_config_passthrough` | Behavior |
+|---|---|---|
+| unset | `true` (default) | Host git identity inherited via `~/.gitconfig` (current behavior). |
+| unset | `false` | No git identity in sandbox. `git commit` fails with "Please tell me who you are". |
+| set | `true` (default) | Host config mounted, commit authorship overridden by env vars. |
+| set | `false` | Clean slate: only sandbox identity applies. |
+
+**Caveat:** `git config user.name` (the command) only reads config files - it ignores the env vars. So when passthrough is on and identity is overridden, `git config user.name` still prints the host's value. Commits are still authored correctly. `git var GIT_AUTHOR_IDENT` is the one git command that does respect the env vars.
 
 ### Authentication
 
@@ -176,7 +207,7 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [x] **Config foundation** — YAML config loading (`yq`), env > workspace > user > default precedence, identity knobs (`sandbox_uid`/`gid`/`username`/`home`)
     - [ ] All isolation designs should be customizable
     - [ ] Git operation policy
-    - [ ] Git config
+    - [x] **Git config** - per-sandbox identity override (`git.identity.name`/`email`) and host config passthrough toggle (`git.host_config_passthrough`)
     - [ ] Additional paths
 - [ ] **Alternative Claude config and env** — use a dedicated config path for Claude Code for better isolation
 - [ ] **Network isolation** — container has its own network, isolated from the host
