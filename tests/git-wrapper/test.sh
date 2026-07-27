@@ -203,6 +203,89 @@ assert_allowed "git gc" gc
 assert_allowed "git rm --cach file.txt" rm --cach file.txt
 assert_blocked "git gc --pru" gc --pru
 
+# --- Git policy file tests ---
+
+POLICY_TMP="$(mktemp)"
+
+# Helper: run wrapper with a policy file set.
+assert_blocked_with_policy() {
+    local desc="$1"; shift
+    local policy_content="$1"; shift
+    printf '%s' "$policy_content" > "$POLICY_TMP"
+    rm -f "$STUB_DIR/called"
+    local err code
+    err="$(REAL_GIT="$STUB_DIR/git" GIT_POLICY_FILE="$POLICY_TMP" "$WRAPPER" "$@" 2>&1 >/dev/null)" && code=0 || code=$?
+    if [[ $code -ne 1 || "$err" != *"[SECURITY]"* ]]; then
+        echo "FAIL: $desc (expected block, got code=$code err='$err')"
+        fail=$((fail+1)); return
+    fi
+    echo "PASS: $desc"
+    pass=$((pass+1))
+}
+
+assert_allowed_with_policy() {
+    local desc="$1"; shift
+    local policy_content="$1"; shift
+    printf '%s' "$policy_content" > "$POLICY_TMP"
+    rm -f "$STUB_DIR/called"
+    REAL_GIT="$STUB_DIR/git" GIT_POLICY_FILE="$POLICY_TMP" "$WRAPPER" "$@" >/dev/null 2>&1
+    local code=$?
+    if [[ $code -ne 0 || ! -f "$STUB_DIR/called" ]]; then
+        echo "FAIL: $desc (expected allow, got code=$code)"
+        fail=$((fail+1)); return
+    fi
+    echo "PASS: $desc"
+    pass=$((pass+1))
+}
+
+# Test: allow rule unblocks a default-blocked command
+assert_allowed_with_policy "policy allow unblocks git reset --hard" \
+    '[allow]
+^reset' reset --hard HEAD~1
+
+# Test: allow rule unblocks git commit --amend
+assert_allowed_with_policy "policy allow unblocks git commit --amend" \
+    '[allow]
+^commit --amend' commit --amend
+
+# Test: block rule blocks an allowed command
+assert_blocked_with_policy "policy block blocks git stash pop" \
+    '[block]
+^stash pop' stash pop
+
+# Test: allow rule for one command doesn't affect unrelated blocked commands
+assert_blocked_with_policy "policy allow ^reset does not unblock git push" \
+    '[allow]
+^reset' push
+
+# Test: block rule doesn't affect unrelated allowed commands
+assert_allowed_with_policy "policy block ^stash pop does not block git status" \
+    '[block]
+^stash pop' status
+
+# Test: comments and empty lines in policy file are skipped
+assert_allowed_with_policy "policy file with comments and empty lines" \
+    '[allow]
+# this is a comment
+
+^reset
+
+# another comment' reset --hard
+
+# Test: no policy file means default behavior (push still blocked)
+rm -f "$STUB_DIR/called"
+REAL_GIT="$STUB_DIR/git" "$WRAPPER" push >/dev/null 2>&1
+code=$?
+if [[ $code -eq 1 && ! -f "$STUB_DIR/called" ]]; then
+    echo "PASS: no policy file - default blocks still apply"
+    pass=$((pass+1))
+else
+    echo "FAIL: no policy file - default blocks still apply (code=$code)"
+    fail=$((fail+1))
+fi
+
+rm -f "$POLICY_TMP"
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]] || exit 1

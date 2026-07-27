@@ -36,6 +36,23 @@ resolve() {  # ENV_NAME YQ_PATH DEFAULT
   echo "$default"
 }
 
+# Resolve a list knob. Returns newline-joined values from a YAML array.
+# Env var (newline-separated) > workspace config > user config.
+# Returns empty string if nothing set. Consults the *_VALID flags.
+resolve_list() {  # ENV_NAME YQ_PATH
+  local env_name="$1" yq_path="$2"
+  if [[ -n "${!env_name:-}" ]]; then echo "${!env_name}"; return; fi
+  if [[ "$WORKSPACE_CONFIG_VALID" == "true" ]]; then
+    local v; v=$(yq -r "$yq_path[]" "$WORKSPACE_CONFIG" 2>/dev/null) || v=""
+    [[ -n "$v" ]] && { echo "$v"; return; }
+  fi
+  if [[ "$USER_CONFIG_VALID" == "true" ]]; then
+    local v; v=$(yq -r "$yq_path[]" "$USER_CONFIG" 2>/dev/null) || v=""
+    [[ -n "$v" ]] && { echo "$v"; return; }
+  fi
+  echo ""
+}
+
 # --- Main execution (only runs when executed, not sourced) ---
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -50,11 +67,7 @@ fi
 export WORKSPACE_DIR="${1:-$(pwd)}"
 export WORKSPACE_DIR=$(cd "$WORKSPACE_DIR" && pwd)
 
-# Claude Code version to run inside the container.
-# Defaults to the version installed on the host to keep credentials compatible.
-# Override with e.g. CLAUDE_VERSION=latest or CLAUDE_VERSION=2.1.152
-CLAUDE_VERSION="${CLAUDE_VERSION:-$(claude --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)}"
-CLAUDE_PACKAGE="@anthropic-ai/claude-code${CLAUDE_VERSION:+@${CLAUDE_VERSION}}"
+# CLAUDE_VERSION and CLAUDE_PACKAGE resolved below, after config discovery.
 
 # Config file discovery.
 USER_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/claude-sandboxed/config.yaml"
@@ -71,6 +84,11 @@ export SANDBOX_GID="$(resolve SANDBOX_GID .sandbox.gid "$(id -g)")"
 export SANDBOX_USERNAME="$(resolve SANDBOX_USERNAME .sandbox.username "$(id -un)")"
 export SANDBOX_HOME="$(resolve SANDBOX_HOME .sandbox.home "/home/$SANDBOX_USERNAME")"
 
+# Claude Code version to run inside the container.
+# Precedence: env var > workspace config > user config > host's claude version.
+CLAUDE_VERSION="$(resolve CLAUDE_VERSION .claude.version "$(claude --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)")"
+CLAUDE_PACKAGE="@anthropic-ai/claude-code${CLAUDE_VERSION:+@${CLAUDE_VERSION}}"
+
 # Git identity and host-config passthrough.
 # Not exported: these are consumed only by this launcher to build -e / -v flags
 # for `docker compose run`. The compose file does not interpolate them, so they
@@ -78,6 +96,20 @@ export SANDBOX_HOME="$(resolve SANDBOX_HOME .sandbox.home "/home/$SANDBOX_USERNA
 SANDBOX_GIT_IDENTITY_NAME="$(resolve SANDBOX_GIT_IDENTITY_NAME .git.identity.name "")"
 SANDBOX_GIT_IDENTITY_EMAIL="$(resolve SANDBOX_GIT_IDENTITY_EMAIL .git.identity.email "")"
 SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH="$(resolve SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH .git.host_config_passthrough true)"
+
+# Cleanup toggle. When false, the cleanup container does not run.
+# Precedence: env var > workspace config > user config > default (true).
+SANDBOX_CLEANUP="$(resolve SANDBOX_CLEANUP .sandbox.cleanup true)"
+
+# Claude config passthrough: mount host ~/.claude and ~/.claude.json into the container.
+# When false, neither is mounted (useful with ANTHROPIC_API_KEY only for isolation).
+CLAUDE_CONFIG_PASSTHROUGH="$(resolve CLAUDE_CONFIG_PASSTHROUGH .claude.config_passthrough true)"
+
+# Custom host paths for the Claude config directory and file.
+# Container-side path is always ${SANDBOX_HOME}/.claude and ${SANDBOX_HOME}/.claude.json
+# (that's where Claude Code expects them); only the host-side path is configurable.
+CLAUDE_CONFIG_DIR="$(resolve CLAUDE_CONFIG_DIR .claude.config_dir "$HOME/.claude")"
+CLAUDE_CONFIG_FILE="$(resolve CLAUDE_CONFIG_FILE .claude.config_file "$HOME/.claude.json")"
 
 # Per-user project name keeps containers and volumes isolated on multi-user machines.
 # Each user gets their own container and their own claude-agent-home volume.
@@ -107,6 +139,19 @@ if [[ "$SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH" == "true" ]]; then
     fi
 fi
 
+# Claude config mounts: conditional on passthrough and host file existence.
+# Read/write - Claude Code writes session state, settings, etc. here.
+# Host paths are configurable via claude.config_dir / claude.config_file.
+CLAUDE_VOLUME_ARGS=()
+if [[ "$CLAUDE_CONFIG_PASSTHROUGH" == "true" ]]; then
+    if [[ -d "$CLAUDE_CONFIG_DIR" ]]; then
+        CLAUDE_VOLUME_ARGS+=(-v "$CLAUDE_CONFIG_DIR:${SANDBOX_HOME}/.claude")
+    fi
+    if [[ -f "$CLAUDE_CONFIG_FILE" ]]; then
+        CLAUDE_VOLUME_ARGS+=(-v "$CLAUDE_CONFIG_FILE:${SANDBOX_HOME}/.claude.json")
+    fi
+fi
+
 # Git identity overrides: passed as -e flags so they only appear when set.
 # Listing them in docker-compose.yml environment: would leak host GIT_AUTHOR_*
 # into the container when config doesn't set them - the opposite of what we want.
@@ -120,6 +165,26 @@ if [[ -n "$SANDBOX_GIT_IDENTITY_EMAIL" ]]; then
     GIT_ENV_ARGS+=(-e GIT_COMMITTER_EMAIL="$SANDBOX_GIT_IDENTITY_EMAIL")
 fi
 
+# Git operation policy: user-defined allow/block regex lists that patch the
+# default wrapper policy. Passed into the container as a generated file
+# mounted at /etc/claude-sandboxed/git-policy.conf.
+SANDBOX_GIT_POLICY_ALLOW="$(resolve_list SANDBOX_GIT_POLICY_ALLOW .git.policy.allow)"
+SANDBOX_GIT_POLICY_BLOCK="$(resolve_list SANDBOX_GIT_POLICY_BLOCK .git.policy.block)"
+
+GIT_POLICY_VOLUME_ARGS=()
+POLICY_FILE=""
+if [[ -n "$SANDBOX_GIT_POLICY_ALLOW" || -n "$SANDBOX_GIT_POLICY_BLOCK" ]]; then
+    POLICY_FILE="$(mktemp)"
+    {
+        echo "[allow]"
+        printf '%s\n' "$SANDBOX_GIT_POLICY_ALLOW"
+        echo "[block]"
+        printf '%s\n' "$SANDBOX_GIT_POLICY_BLOCK"
+    } > "$POLICY_FILE"
+    GIT_POLICY_VOLUME_ARGS+=(-v "$POLICY_FILE:/etc/claude-sandboxed/git-policy.conf:ro")
+    trap 'rm -f "$POLICY_FILE"' EXIT
+fi
+
 # Run Claude in a one-shot container that is removed automatically on exit.
 # Each invocation gets its own container; named volumes (claude-agent-home) persist across runs.
 docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
@@ -127,6 +192,8 @@ docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml
   -e HOME="${SANDBOX_HOME}" \
   "${GIT_ENV_ARGS[@]}" \
   "${GIT_VOLUME_ARGS[@]}" \
+  "${CLAUDE_VOLUME_ARGS[@]}" \
+  "${GIT_POLICY_VOLUME_ARGS[@]}" \
   -it ai-agent npx --yes "$CLAUDE_PACKAGE" --dangerously-skip-permissions
 
 # Clean up empty stub directories that Docker created inside the claude-agent-home volume
@@ -135,7 +202,7 @@ docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml
 #
 # We walk upward from the parent of WORKSPACE_DIR toward SANDBOX_HOME, removing each
 # directory only if it is empty (rmdir fails silently otherwise, so real data is safe).
-if [[ "$WORKSPACE_DIR" == "$SANDBOX_HOME"/* ]]; then
+if [[ "$SANDBOX_CLEANUP" == "true" && "$WORKSPACE_DIR" == "$SANDBOX_HOME"/* ]]; then
   docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
     --rm \
     cleanup

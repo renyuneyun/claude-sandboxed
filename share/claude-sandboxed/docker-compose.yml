@@ -11,9 +11,9 @@ services:
       - ${WORKSPACE_DIR}:${WORKSPACE_DIR}
       # 2. PERSISTENT CACHE: Saves manual tools, packages, global settings, and histories
       - claude-agent-home:${SANDBOX_HOME}
-      # 3. CLAUDE CONFIG PASS-THROUGH: Links your local credential configurations
-      - ${HOME}/.claude:${SANDBOX_HOME}/.claude
-      - ${HOME}/.claude.json:${SANDBOX_HOME}/.claude.json
+      # 3. CLAUDE CONFIG PASS-THROUGH: Injected dynamically by the launcher
+      #    (CLAUDE_VOLUME_ARGS) so it can be toggled via config.
+      #    See bin/claude-sandboxed for the conditional mount logic.
       # 4. GIT WRAPPER: Intercepts git calls to block destructive operations.
       #    Read-only; /usr/local/bin precedes /usr/bin in PATH inside node:22-bookworm.
       - ./git-wrapper:/usr/local/bin/git:ro

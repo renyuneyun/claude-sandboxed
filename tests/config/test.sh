@@ -296,6 +296,340 @@ else
     bad "resolve: git.host_config_passthrough user true (got '$result')"
 fi
 
+# --- resolve tests for claude.version and sandbox.cleanup ---
+
+# Setup: config files with claude and sandbox sections
+printf 'claude:\n  version: "1.0.0"\nsandbox:\n  cleanup: false\n' > "$TMPDIR/cs-workspace.yaml"
+printf 'claude:\n  version: "2.0.0"\nsandbox:\n  cleanup: true\n' > "$TMPDIR/cs-user.yaml"
+
+# Test: claude.version - env var wins
+CLAUDE_VERSION=env-version
+WORKSPACE_CONFIG="$TMPDIR/cs-workspace.yaml"
+USER_CONFIG="$TMPDIR/cs-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_VERSION .claude.version "default-ver")
+if [[ "$result" == "env-version" ]]; then
+    ok "resolve: claude.version env var wins"
+else
+    bad "resolve: claude.version env var wins (got '$result')"
+fi
+
+# Test: claude.version - workspace wins over user (no env)
+unset CLAUDE_VERSION
+WORKSPACE_CONFIG="$TMPDIR/cs-workspace.yaml"
+USER_CONFIG="$TMPDIR/cs-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_VERSION .claude.version "default-ver")
+if [[ "$result" == "1.0.0" ]]; then
+    ok "resolve: claude.version workspace wins over user"
+else
+    bad "resolve: claude.version workspace wins over user (got '$result')"
+fi
+
+# Test: claude.version - user fills gap when workspace absent
+unset CLAUDE_VERSION
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/cs-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_VERSION .claude.version "default-ver")
+if [[ "$result" == "2.0.0" ]]; then
+    ok "resolve: claude.version user fills gap"
+else
+    bad "resolve: claude.version user fills gap (got '$result')"
+fi
+
+# Test: claude.version - default when nothing set
+unset CLAUDE_VERSION
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve CLAUDE_VERSION .claude.version "default-ver")
+if [[ "$result" == "default-ver" ]]; then
+    ok "resolve: claude.version default when nothing set"
+else
+    bad "resolve: claude.version default (got '$result')"
+fi
+
+# Test: sandbox.cleanup - default is "true"
+unset SANDBOX_CLEANUP
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve SANDBOX_CLEANUP .sandbox.cleanup true)
+if [[ "$result" == "true" ]]; then
+    ok "resolve: sandbox.cleanup default true"
+else
+    bad "resolve: sandbox.cleanup default (got '$result')"
+fi
+
+# Test: sandbox.cleanup - env var "false" wins
+SANDBOX_CLEANUP=false
+WORKSPACE_CONFIG="$TMPDIR/cs-workspace.yaml"
+USER_CONFIG="$TMPDIR/cs-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_CLEANUP .sandbox.cleanup true)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: sandbox.cleanup env var false wins"
+else
+    bad "resolve: sandbox.cleanup env false (got '$result')"
+fi
+
+# Test: sandbox.cleanup - workspace "false" when no env
+unset SANDBOX_CLEANUP
+WORKSPACE_CONFIG="$TMPDIR/cs-workspace.yaml"
+USER_CONFIG="$TMPDIR/cs-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_CLEANUP .sandbox.cleanup true)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: sandbox.cleanup workspace false"
+else
+    bad "resolve: sandbox.cleanup workspace false (got '$result')"
+fi
+
+# Test: sandbox.cleanup - user "true" wins over default when workspace absent
+unset SANDBOX_CLEANUP
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/cs-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_CLEANUP .sandbox.cleanup false)
+if [[ "$result" == "true" ]]; then
+    ok "resolve: sandbox.cleanup user true beats false default"
+else
+    bad "resolve: sandbox.cleanup user true (got '$result')"
+fi
+
+# --- resolve tests for claude.config_passthrough ---
+
+printf 'claude:\n  config_passthrough: false\n' > "$TMPDIR/cp-workspace.yaml"
+printf 'claude:\n  config_passthrough: true\n' > "$TMPDIR/cp-user.yaml"
+
+# Test: claude.config_passthrough - default is "true"
+unset CLAUDE_CONFIG_PASSTHROUGH
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve CLAUDE_CONFIG_PASSTHROUGH .claude.config_passthrough true)
+if [[ "$result" == "true" ]]; then
+    ok "resolve: claude.config_passthrough default true"
+else
+    bad "resolve: claude.config_passthrough default (got '$result')"
+fi
+
+# Test: claude.config_passthrough - env var "false" wins
+CLAUDE_CONFIG_PASSTHROUGH=false
+WORKSPACE_CONFIG="$TMPDIR/cp-workspace.yaml"
+USER_CONFIG="$TMPDIR/cp-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_CONFIG_PASSTHROUGH .claude.config_passthrough true)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: claude.config_passthrough env false wins"
+else
+    bad "resolve: claude.config_passthrough env false (got '$result')"
+fi
+
+# Test: claude.config_passthrough - workspace "false" when no env
+unset CLAUDE_CONFIG_PASSTHROUGH
+WORKSPACE_CONFIG="$TMPDIR/cp-workspace.yaml"
+USER_CONFIG="$TMPDIR/cp-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_CONFIG_PASSTHROUGH .claude.config_passthrough true)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: claude.config_passthrough workspace false"
+else
+    bad "resolve: claude.config_passthrough workspace false (got '$result')"
+fi
+
+# Test: claude.config_passthrough - user "true" beats false default
+unset CLAUDE_CONFIG_PASSTHROUGH
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/cp-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_CONFIG_PASSTHROUGH .claude.config_passthrough false)
+if [[ "$result" == "true" ]]; then
+    ok "resolve: claude.config_passthrough user true beats false default"
+else
+    bad "resolve: claude.config_passthrough user true (got '$result')"
+fi
+
+# --- resolve_list tests ---
+
+printf 'git:\n  policy:\n    allow:\n      - "^reset"\n      - "^commit --amend"\n    block:\n      - "^stash pop"\n' > "$TMPDIR/policy-workspace.yaml"
+printf 'git:\n  policy:\n    allow:\n      - "^push"\n' > "$TMPDIR/policy-user.yaml"
+
+# Test: resolve_list - env var (newline-separated) wins
+SANDBOX_GIT_POLICY_ALLOW=$'^env1\n^env2'
+WORKSPACE_CONFIG="$TMPDIR/policy-workspace.yaml"
+USER_CONFIG="$TMPDIR/policy-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve_list SANDBOX_GIT_POLICY_ALLOW .git.policy.allow)
+if [[ "$result" == $'^env1\n^env2' ]]; then
+    ok "resolve_list: env var wins"
+else
+    bad "resolve_list: env var wins (got '$result')"
+fi
+
+# Test: resolve_list - workspace wins over user (no env)
+unset SANDBOX_GIT_POLICY_ALLOW
+WORKSPACE_CONFIG="$TMPDIR/policy-workspace.yaml"
+USER_CONFIG="$TMPDIR/policy-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve_list SANDBOX_GIT_POLICY_ALLOW .git.policy.allow)
+if [[ "$result" == $'^reset\n^commit --amend' ]]; then
+    ok "resolve_list: workspace wins over user"
+else
+    bad "resolve_list: workspace wins over user (got '$result')"
+fi
+
+# Test: resolve_list - user fills gap when workspace absent
+unset SANDBOX_GIT_POLICY_ALLOW
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/policy-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve_list SANDBOX_GIT_POLICY_ALLOW .git.policy.allow)
+if [[ "$result" == "^push" ]]; then
+    ok "resolve_list: user fills gap"
+else
+    bad "resolve_list: user fills gap (got '$result')"
+fi
+
+# Test: resolve_list - empty when nothing set
+unset SANDBOX_GIT_POLICY_ALLOW
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve_list SANDBOX_GIT_POLICY_ALLOW .git.policy.allow)
+if [[ -z "$result" ]]; then
+    ok "resolve_list: empty when nothing set"
+else
+    bad "resolve_list: empty when nothing set (got '$result')"
+fi
+
+# Test: resolve_list - missing key in valid file returns empty
+printf 'git: {}\n' > "$TMPDIR/no-policy.yaml"
+unset SANDBOX_GIT_POLICY_ALLOW
+WORKSPACE_CONFIG="$TMPDIR/no-policy.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=false
+result=$(resolve_list SANDBOX_GIT_POLICY_ALLOW .git.policy.allow)
+if [[ -z "$result" ]]; then
+    ok "resolve_list: missing key returns empty"
+else
+    bad "resolve_list: missing key returns empty (got '$result')"
+fi
+
+# Test: resolve_list - block list from workspace
+unset SANDBOX_GIT_POLICY_BLOCK
+WORKSPACE_CONFIG="$TMPDIR/policy-workspace.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=false
+result=$(resolve_list SANDBOX_GIT_POLICY_BLOCK .git.policy.block)
+if [[ "$result" == "^stash pop" ]]; then
+    ok "resolve_list: block list from workspace"
+else
+    bad "resolve_list: block list from workspace (got '$result')"
+fi
+
+# --- resolve tests for claude.config_dir and claude.config_file ---
+
+printf 'claude:\n  config_dir: /custom/ws-claude\n  config_file: /custom/ws-claude.json\n' > "$TMPDIR/cd-workspace.yaml"
+printf 'claude:\n  config_dir: /custom/user-claude\n  config_file: /custom/user-claude.json\n' > "$TMPDIR/cd-user.yaml"
+
+# Test: claude.config_dir - env var wins
+CLAUDE_CONFIG_DIR=/env-claude
+WORKSPACE_CONFIG="$TMPDIR/cd-workspace.yaml"
+USER_CONFIG="$TMPDIR/cd-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_CONFIG_DIR .claude.config_dir "/default/.claude")
+if [[ "$result" == "/env-claude" ]]; then
+    ok "resolve: claude.config_dir env var wins"
+else
+    bad "resolve: claude.config_dir env var wins (got '$result')"
+fi
+
+# Test: claude.config_dir - workspace wins over user (no env)
+unset CLAUDE_CONFIG_DIR
+WORKSPACE_CONFIG="$TMPDIR/cd-workspace.yaml"
+USER_CONFIG="$TMPDIR/cd-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_CONFIG_DIR .claude.config_dir "/default/.claude")
+if [[ "$result" == "/custom/ws-claude" ]]; then
+    ok "resolve: claude.config_dir workspace wins over user"
+else
+    bad "resolve: claude.config_dir workspace wins over user (got '$result')"
+fi
+
+# Test: claude.config_dir - user fills gap when workspace absent
+unset CLAUDE_CONFIG_DIR
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/cd-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_CONFIG_DIR .claude.config_dir "/default/.claude")
+if [[ "$result" == "/custom/user-claude" ]]; then
+    ok "resolve: claude.config_dir user fills gap"
+else
+    bad "resolve: claude.config_dir user fills gap (got '$result')"
+fi
+
+# Test: claude.config_dir - default when nothing set
+unset CLAUDE_CONFIG_DIR
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve CLAUDE_CONFIG_DIR .claude.config_dir "/default/.claude")
+if [[ "$result" == "/default/.claude" ]]; then
+    ok "resolve: claude.config_dir default when nothing set"
+else
+    bad "resolve: claude.config_dir default (got '$result')"
+fi
+
+# Test: claude.config_file - workspace value via yq path
+unset CLAUDE_CONFIG_FILE
+WORKSPACE_CONFIG="$TMPDIR/cd-workspace.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=false
+result=$(resolve CLAUDE_CONFIG_FILE .claude.config_file "/default/.claude.json")
+if [[ "$result" == "/custom/ws-claude.json" ]]; then
+    ok "resolve: claude.config_file workspace value"
+else
+    bad "resolve: claude.config_file workspace value (got '$result')"
+fi
+
+# Test: claude.config_file - user fills gap when workspace absent
+unset CLAUDE_CONFIG_FILE
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/cd-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve CLAUDE_CONFIG_FILE .claude.config_file "/default/.claude.json")
+if [[ "$result" == "/custom/user-claude.json" ]]; then
+    ok "resolve: claude.config_file user fills gap"
+else
+    bad "resolve: claude.config_file user fills gap (got '$result')"
+fi
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]] || exit 1

@@ -50,6 +50,37 @@ block() {
     exit 1
 }
 
+# --- User policy file (patches the default policy) ---
+# Format: [allow] and [block] section headers, one regex per line.
+# Lines starting with # or empty are skipped. Regex is ERE, matched
+# against "subcommand args..." (global flags stripped). Substring match
+# by default; use ^ and $ to anchor.
+POLICY_FILE="${GIT_POLICY_FILE:-/etc/claude-sandboxed/git-policy.conf}"
+if [[ -f "$POLICY_FILE" ]]; then
+    # Build command string for regex matching.
+    cmd_args="$subcommand"
+    for ((j=subcommand_idx+1; j<=$#; j++)); do
+        cmd_args="$cmd_args ${!j}"
+    done
+    section=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        case "$line" in
+            "[allow]") section="allow"; continue ;;
+            "[block]") section="block"; continue ;;
+        esac
+        if [[ "$section" == "allow" ]]; then
+            if [[ "$cmd_args" =~ $line ]]; then
+                exec "$REAL_GIT" "$@"
+            fi
+        elif [[ "$section" == "block" ]]; then
+            if [[ "$cmd_args" =~ $line ]]; then
+                block "matches user block rule: $line"
+            fi
+        fi
+    done < "$POLICY_FILE"
+fi
+
 # --- Policy checks ---
 
 case "$subcommand" in
