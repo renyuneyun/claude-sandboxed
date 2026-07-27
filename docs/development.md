@@ -17,6 +17,11 @@ These must not be broken without updating all affected documentation:
 - `WORKSPACE_DIR` must be exported before `docker compose up` — the compose file interpolates it.
 - `SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_USERNAME`, and `SANDBOX_HOME` must be exported before `docker compose up` — the compose file interpolates them for volume paths and the user-creation entrypoint.
 - `SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, and `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH` are launcher-side only — they are NOT exported and NOT interpolated by the compose file. The launcher reads them to build `-e` and `-v` flags for `docker compose run`. Do not add them to the "must be exported" list above.
+- `CLAUDE_VERSION`, `CLAUDE_CONFIG_PASSTHROUGH`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CONFIG_FILE`, `SANDBOX_CLEANUP`, `SANDBOX_GIT_POLICY_ALLOW`, and `SANDBOX_GIT_POLICY_BLOCK` are launcher-side only — they are NOT exported and NOT interpolated by the compose file. The launcher reads them to build `-e` and `-v` flags for `docker compose run`.
+- The `~/.claude` and `~/.claude.json` mounts are in the launcher (`CLAUDE_VOLUME_ARGS`), not in `docker-compose.yml`. The compose file must not mount these paths.
+- The `GIT_POLICY_FILE` path (`/etc/claude-sandboxed/git-policy.conf`) is the contract between the launcher and the wrapper. Changing it requires updating both.
+- `resolve_list` must remain defined outside the main guard (for testability), same as `check_config` and `resolve`.
+- The policy file cleanup trap (`trap 'rm -f "$POLICY_FILE"' EXIT`) must remain. Without it, temp policy files leak in `/tmp`.
 - `WORKSPACE_DIR` must be resolved to an absolute path before `WORKSPACE_CONFIG` is derived from it (the workspace config path is `$WORKSPACE_DIR/.claude-sandboxed.yaml`).
 - Config file functions (`check_config`, `resolve`) must remain defined outside the main execution guard so tests can source the launcher and call them directly.
 - All `docker compose` invocations must pass `-p "$COMPOSE_PROJECT"` (set to `claude-sandboxed-${SANDBOX_UID}`) — this namespaces containers and volumes per user, preventing conflicts on multi-user machines.
@@ -24,17 +29,18 @@ These must not be broken without updating all affected documentation:
 
 ## Config resolution
 
-Identity knobs (`SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_USERNAME`, `SANDBOX_HOME`) and git knobs (`SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH`) are resolved per-knob from four sources in priority order:
+Identity knobs (`SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_USERNAME`, `SANDBOX_HOME`), git knobs (`SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH`), and the new knobs (`CLAUDE_VERSION`, `CLAUDE_CONFIG_PASSTHROUGH`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CONFIG_FILE`, `SANDBOX_CLEANUP`, `SANDBOX_GIT_POLICY_ALLOW`, `SANDBOX_GIT_POLICY_BLOCK`) are resolved per-knob from four sources in priority order:
 
 1. **Env var** (`SANDBOX_UID`, etc.) - if set and non-empty.
 2. **Workspace config** (`$WORKSPACE_DIR/.claude-sandboxed.yaml`) - if the key is present and non-null.
 3. **User config** (`${XDG_CONFIG_HOME:-$HOME/.config}/claude-sandboxed/config.yaml`) - if the key is present and non-null.
-4. **Default** - identity knobs: `$(id -u)`, `$(id -g)`, `$(id -un)`, `/home/$SANDBOX_USERNAME`. Git knobs: `""`, `""`, `true`.
+4. **Default** - identity knobs: `$(id -u)`, `$(id -g)`, `$(id -un)`, `/home/$SANDBOX_USERNAME`. Git identity knobs: `""`, `""`. `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH`: `true`. `CLAUDE_VERSION`: host's claude version. `CLAUDE_CONFIG_PASSTHROUGH`: `true`. `CLAUDE_CONFIG_DIR`: `$HOME/.claude`. `CLAUDE_CONFIG_FILE`: `$HOME/.claude.json`. `SANDBOX_CLEANUP`: `true`. `SANDBOX_GIT_POLICY_ALLOW` / `SANDBOX_GIT_POLICY_BLOCK`: empty.
 
 Two bash functions in `bin/claude-sandboxed` implement this:
 
 - `check_config FILE` - returns 0 if the file exists, `yq` is on `PATH`, and the YAML parses; returns 1 (with a stderr warning) otherwise. Missing files return 1 silently.
 - `resolve ENV_NAME YQ_PATH DEFAULT` - checks the env var, then the validated workspace config, then the validated user config, then the default. Consults `WORKSPACE_CONFIG_VALID` / `USER_CONFIG_VALID` flags set by up-front `check_config` calls.
+- `resolve_list ENV_NAME YQ_PATH` - like `resolve` but for YAML arrays. Returns newline-joined values. Used for `git.policy.allow` and `git.policy.block`. No default parameter (empty if nothing set).
 
 `yq` is a host-only dependency. Either mikefarah's Go `yq` or kislyuk's Python `yq` works - the spec uses only `yq '.' file` (validation) and `yq -r '.path' file` (key lookup), which are common-denominator operations.
 
@@ -69,6 +75,14 @@ Priority order (first match wins), implemented in `bin/claude-sandboxed`:
 11. **Host passthrough off:** with `git.host_config_passthrough: false`, `/usr/bin/git config user.name` inside the container returns nothing (or git's compiled default), not host's value. `cat ~/.gitconfig` fails (file doesn't exist). Note: `git config` (without `/usr/bin/`) is blocked by the wrapper — use `/usr/bin/git` to introspect.
 12. **Identity + passthrough off:** both `git.identity` set and `host_config_passthrough: false`. `git commit` inside the container uses the sandbox identity. `git log -1 --format='%an <%ae>'` shows the configured name/email.
 13. **Identity + passthrough on (default):** `git.identity` set, `host_config_passthrough` unset (default true). `git commit` uses the env-var identity. `git config user.name` (via `/usr/bin/git`) still reports host's value (env vars don't affect `git config --get`).
+14. **Claude version:** with `claude.version: "2.1.152"` in workspace config, the container runs that version (verify with `claude --version` inside).
+15. **Claude config passthrough off:** with `claude.config_passthrough: false`, `~/.claude` is not mounted. `ls ~/.claude` inside the container shows nothing (or the volume's empty dir). Claude starts with `ANTHROPIC_API_KEY` set.
+16. **Claude config custom paths:** with `claude.config_dir: /shared/claude` and `claude.config_file: /shared/claude.json`, the container mounts those host paths at `${SANDBOX_HOME}/.claude` and `${SANDBOX_HOME}/.claude.json`. Verify: `ls ~/.claude` inside shows the custom dir's contents, not the host default.
+17. **Cleanup off:** with `sandbox.cleanup: false`, no `cleanup` container runs after exit. Stub dirs may remain in the volume (harmless).
+18. **Git policy allow:** with `git.policy.allow: ["^reset"]`, `git reset --hard HEAD~1` works inside the container.
+19. **Git policy block:** with `git.policy.block: ["^stash pop"]`, `git stash pop` is blocked with a "[SECURITY]" message.
+20. **Git policy file:** `cat /etc/claude-sandboxed/git-policy.conf` inside the container shows the effective policy.
+21. **Git policy doesn't affect unmatched commands:** with `git.policy.allow: ["^reset"]`, `git push` is still blocked.
 
 ## Automated tests
 

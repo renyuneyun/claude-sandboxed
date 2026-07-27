@@ -80,17 +80,30 @@ Edit the copy, uncommenting the lines you want to change. All fields are comment
 Schema (all fields optional):
 
 ```yaml
+claude:
+  version: "2.1.152"            # string,  default: host's claude version
+  config_passthrough: true      # bool,    default: true
+  config_dir: ~/.claude         # string,  default: ~/.claude
+  config_file: ~/.claude.json   # string,  default: ~/.claude.json
+
 sandbox:
   uid: 1000          # integer, default: $(id -u)
   gid: 1000          # integer, default: $(id -g)
   username: ryey     # string,  default: $(id -un)
   home: /home/ryey   # string,  default: /home/$username
+  cleanup: true      # bool,    default: true
 
 git:
   identity:
     name: claude-bot     # string,  default: "" (not set - inherit)
     email: bot@example.com  # string,  default: "" (not set)
   host_config_passthrough: true  # bool, default: true
+  policy:
+    allow:              # list of regex (ERE), default: empty
+      - "^reset"
+      - "^commit --amend"
+    block:              # list of regex (ERE), default: empty
+      - "^stash pop"
 ```
 
 Example `~/.config/claude-sandboxed/config.yaml`:
@@ -151,6 +164,80 @@ Env var overrides: `SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, `S
 
 **Caveat:** `git config user.name` (the command) only reads config files - it ignores the env vars. So when passthrough is on and identity is overridden, `git config user.name` still prints the host's value. Commits are still authored correctly. `git var GIT_AUTHOR_IDENT` is the one git command that does respect the env vars.
 
+### Claude version
+
+Pin a specific Claude Code version via config instead of the `CLAUDE_VERSION` env var:
+
+```yaml
+claude:
+  version: "2.1.152"
+```
+
+Same precedence as other knobs: env var > workspace config > user config > host's installed version.
+
+### Claude config passthrough
+
+By default, the host's `~/.claude` directory and `~/.claude.json` are mounted into the container so Claude Code has credentials, skills, and settings. Disable this for a more isolated environment:
+
+```yaml
+claude:
+  config_passthrough: false
+```
+
+When disabled, Claude Code runs without host credentials. Set `ANTHROPIC_API_KEY` in your environment to authenticate without `~/.claude`. This is useful for running Claude with a clean slate - no host skills, no host settings, no host session history.
+
+You can also point at custom host paths instead of the defaults:
+
+```yaml
+claude:
+  config_dir: /shared/claude-config        # default: ~/.claude
+  config_file: /shared/claude-config.json  # default: ~/.claude.json
+```
+
+The container-side path is always `${SANDBOX_HOME}/.claude` and `${SANDBOX_HOME}/.claude.json` (that's where Claude Code expects them); only the host-side path changes. This lets you share a dedicated Claude config across projects or use a config that differs from your host user's default.
+
+### Cleanup
+
+The launcher runs a small `cleanup` container after the main container exits to remove empty stub directories Docker may have created inside the `claude-agent-home` volume. Disable it to skip that one quick container startup:
+
+```yaml
+sandbox:
+  cleanup: false
+```
+
+Stubs are harmless (empty dirs); this is a minor optimization.
+
+### Git policy config
+
+The built-in git operation policy (see [Git policy](#git-policy) below) blocks destructive git operations. Customize it with regex-based allow/block lists that patch the default:
+
+```yaml
+git:
+  policy:
+    allow:
+      - "^reset"           # allow all reset forms (--hard, --soft, etc.)
+      - "^commit --amend"  # allow amend
+    block:
+      - "^stash pop"       # block stash pop (example)
+```
+
+Patterns are extended regex (ERE), matched against the git subcommand + args (global flags like `-C` are stripped first). Substring match by default; use `^` and `$` to anchor.
+
+**Precedence** (first match wins):
+
+1. User `allow` rules - if a pattern matches, the command runs even if the default would block it.
+2. User `block` rules - if a pattern matches, the command is blocked even if the default allows it.
+3. Built-in default policy (see list below).
+4. Allowed (exec real git).
+
+To inspect the effective policy inside the container:
+
+```sh
+cat /etc/claude-sandboxed/git-policy.conf
+```
+
+The file is only present when `git.policy` is set. When neither `allow` nor `block` is configured, the wrapper uses the built-in default policy directly.
+
 ### Authentication
 
 Claude Code uses credentials from `~/.claude` and `~/.claude.json`, which are bind-mounted from the host (read/write).
@@ -206,8 +293,11 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
 - [ ] **Customization** — set preferences through config files (with docs and examples)
     - [x] **Config foundation** — YAML config loading (`yq`), env > workspace > user > default precedence, identity knobs (`sandbox_uid`/`gid`/`username`/`home`)
     - [ ] All isolation designs should be customizable
-    - [ ] Git operation policy
+    - [x] **Git policy** — regex-based allow/block lists (`git.policy.allow` / `git.policy.block`) that patch the default wrapper policy
     - [x] **Git config** - per-sandbox identity override (`git.identity.name`/`email`) and host config passthrough toggle (`git.host_config_passthrough`)
+    - [x] **Claude version** — pin Claude Code version via `claude.version`
+    - [x] **Claude config passthrough** — toggle `~/.claude` mount via `claude.config_passthrough`
+    - [x] **Cleanup** — toggle cleanup container via `sandbox.cleanup`
     - [ ] Additional paths
 - [ ] **Alternative Claude config and env** — use a dedicated config path for Claude Code for better isolation
 - [ ] **Network isolation** — container has its own network, isolated from the host

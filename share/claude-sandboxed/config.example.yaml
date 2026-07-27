@@ -7,11 +7,34 @@
 # All fields are optional. Uncomment and edit the values you want to change.
 # Precedence per knob: env var > workspace config > user config > built-in default.
 
+claude:
+  # Claude Code version to run inside the container.
+  # Default: host's claude version (from `claude --version`).
+  # version: "2.1.152"
+
+  # When false, host ~/.claude and ~/.claude.json are not mounted into
+  # the container. Useful with ANTHROPIC_API_KEY for a more isolated
+  # environment. Default: true.
+  # config_passthrough: true
+
+  # Custom host paths for the Claude config directory and file.
+  # The container-side path is always ${SANDBOX_HOME}/.claude and
+  # ${SANDBOX_HOME}/.claude.json (that's where Claude Code expects them);
+  # only the host-side path is configurable.
+  # Default: ~/.claude and ~/.claude.json respectively.
+  # config_dir: /path/to/custom/.claude
+  # config_file: /path/to/custom/.claude.json
+
 sandbox:
   # uid: 1000          # default: $(id -u)
   # gid: 1000          # default: $(id -g)
   # username: ryey     # default: $(id -un)
   # home: /home/ryey   # default: /home/$username
+
+  # When false, the cleanup container that removes empty stub dirs
+  # does not run. Stubs are harmless; this only saves one quick
+  # container startup. Default: true.
+  # cleanup: true
 
 git:
   # Identity overrides applied via GIT_AUTHOR_NAME / GIT_COMMITTER_NAME /
@@ -29,3 +52,39 @@ git:
   # When false, host ~/.gitconfig and ~/.config/git/ are not mounted into
   # the container. Default: true (preserves host git identity inheritance).
   # host_config_passthrough: true
+
+  # User-defined git operation policy. Regex patterns (ERE) matched against
+  # the git subcommand + args (global flags like -C are stripped first).
+  # Substring match by default; use ^ and $ to anchor.
+  #
+  # allow: overrides the default block list below. If a pattern matches,
+  #        the command runs even if the default would block it.
+  # block: adds to the default block list. If a pattern matches, the
+  #        command is blocked even if the default allows it.
+  #
+  # The effective policy can be inspected inside the container:
+  #   cat /etc/claude-sandboxed/git-policy.conf
+  #
+  # Default policy (built-in, for reference):
+  #   Fully blocked subcommands:
+  #     push, reset, rebase, filter-branch, filter-repo, clean, config
+  #   Conditionally blocked (sub-subcommand or flag):
+  #     reflog expire|delete
+  #     notes remove|prune
+  #     worktree remove|prune
+  #     stash drop|clear
+  #     branch -d|-D|--delete
+  #     tag -d|--delete|-f|--force
+  #     commit --amend|--reset-author
+  #     checkout -B|-f|--force|-- <pathspec>
+  #     switch -C|--discard-changes
+  #     restore --worktree|-W
+  #     rm (without --cached)
+  #     gc --prune
+  #   Everything else is allowed.
+  policy:
+    allow:
+      # - "^reset"           # allow all reset forms (--hard, --soft, etc.)
+      # - "^commit --amend"  # allow amend
+    block:
+      # - "^stash pop"       # example: block stash pop
