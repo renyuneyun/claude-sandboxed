@@ -53,6 +53,111 @@ resolve_list() {  # ENV_NAME YQ_PATH
   echo ""
 }
 
+launcher_error() {
+  echo "claude-sandboxed: $*" >&2
+  return 2
+}
+
+parse_launcher_args() {
+  CLI_TOOL=""
+  WORKSPACE_ARG=""
+  TOOL_USER_ARGS=()
+
+  while (($#)); do
+    case "$1" in
+      --)
+        shift
+        TOOL_USER_ARGS=("$@")
+        return 0
+        ;;
+      --tool)
+        (($# >= 2)) || { launcher_error "--tool requires claude or codex"; return; }
+        CLI_TOOL="$2"
+        shift 2
+        ;;
+      -*)
+        launcher_error "unsupported option before --: $1"
+        return
+        ;;
+      *)
+        [[ -z "$WORKSPACE_ARG" ]] || {
+          launcher_error "expected at most one workspace before --"
+          return
+        }
+        WORKSPACE_ARG="$1"
+        shift
+        ;;
+    esac
+  done
+}
+
+resolve_tool() {
+  local cli_tool="$1" selected
+  if [[ -n "$cli_tool" ]]; then
+    selected="$cli_tool"
+  else
+    selected="$(resolve SANDBOX_TOOL .tool claude)"
+  fi
+  case "$selected" in
+    claude|codex) echo "$selected" ;;
+    *) launcher_error "unsupported tool '$selected'; supported tools: claude, codex" ;;
+  esac
+}
+
+detect_host_version() {
+  local command_name="$1"
+  command -v "$command_name" >/dev/null 2>&1 || return 0
+  "$command_name" --version 2>/dev/null |
+    grep -oE '[0-9]+\.[0-9]+\.[0-9]+' |
+    head -1
+}
+
+configure_tool() {
+  local tool="$1" version
+  TOOL_PACKAGE=""
+  TOOL_DEFAULT_ARGS=()
+  TOOL_ENV_ARGS=()
+  TOOL_VOLUME_ARGS=()
+
+  case "$tool" in
+    claude)
+      version="$(resolve CLAUDE_VERSION .claude.version "$(detect_host_version claude)")"
+      TOOL_PACKAGE="@anthropic-ai/claude-code${version:+@${version}}"
+      TOOL_DEFAULT_ARGS=(--dangerously-skip-permissions)
+
+      CLAUDE_CONFIG_PASSTHROUGH="$(resolve CLAUDE_CONFIG_PASSTHROUGH .claude.config_passthrough true)"
+      CLAUDE_CONFIG_DIR="$(resolve CLAUDE_CONFIG_DIR .claude.config_dir "$HOME/.claude")"
+      CLAUDE_CONFIG_FILE="$(resolve CLAUDE_CONFIG_FILE .claude.config_file "$HOME/.claude.json")"
+      if [[ "$CLAUDE_CONFIG_PASSTHROUGH" == "true" ]]; then
+        [[ -d "$CLAUDE_CONFIG_DIR" ]] &&
+          TOOL_VOLUME_ARGS+=(-v "$CLAUDE_CONFIG_DIR:${SANDBOX_HOME}/.claude")
+        [[ -f "$CLAUDE_CONFIG_FILE" ]] &&
+          TOOL_VOLUME_ARGS+=(-v "$CLAUDE_CONFIG_FILE:${SANDBOX_HOME}/.claude.json")
+      fi
+      [[ -n "${ANTHROPIC_API_KEY:-}" ]] &&
+        TOOL_ENV_ARGS+=(-e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY")
+      return 0
+      ;;
+    codex)
+      version="$(resolve CODEX_VERSION .codex.version "$(detect_host_version codex)")"
+      TOOL_PACKAGE="@openai/codex${version:+@${version}}"
+      TOOL_DEFAULT_ARGS=(--dangerously-bypass-approvals-and-sandbox)
+
+      CODEX_CONFIG_PASSTHROUGH="$(resolve CODEX_CONFIG_PASSTHROUGH .codex.config_passthrough true)"
+      CODEX_CONFIG_DIR="$(resolve CODEX_CONFIG_DIR .codex.config_dir "$HOME/.codex")"
+      if [[ "$CODEX_CONFIG_PASSTHROUGH" == "true" && -d "$CODEX_CONFIG_DIR" ]]; then
+        TOOL_VOLUME_ARGS+=(-v "$CODEX_CONFIG_DIR:${SANDBOX_HOME}/.codex")
+      fi
+      [[ -n "${OPENAI_API_KEY:-}" ]] &&
+        TOOL_ENV_ARGS+=(-e OPENAI_API_KEY="$OPENAI_API_KEY")
+      return 0
+      ;;
+    *)
+      launcher_error "unsupported tool '$tool'; supported tools: claude, codex"
+      ;;
+  esac
+}
+
 # --- Main execution (only runs when executed, not sourced) ---
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -63,11 +168,20 @@ if [[ "${1:-}" == "--version" || "${1:-}" == "-V" ]]; then
     exit 0
 fi
 
-# Target folder defaults to the directory you are currently standing in
-export WORKSPACE_DIR="${1:-$(pwd)}"
-export WORKSPACE_DIR=$(cd "$WORKSPACE_DIR" && pwd)
+parse_launcher_args "$@"
 
-# CLAUDE_VERSION and CLAUDE_PACKAGE resolved below, after config discovery.
+# Target folder defaults to the directory you are currently standing in
+export WORKSPACE_DIR="${WORKSPACE_ARG:-$(pwd)}"
+if [[ ! -d "$WORKSPACE_DIR" ]]; then
+  launcher_error "workspace does not exist or is not a directory: $WORKSPACE_DIR"
+  exit 2
+fi
+export WORKSPACE_DIR
+WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)" || {
+  launcher_error "cannot resolve workspace: $WORKSPACE_DIR"
+  exit 2
+}
+export WORKSPACE_DIR
 
 # Config file discovery.
 USER_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/claude-sandboxed/config.yaml"
@@ -84,10 +198,8 @@ export SANDBOX_GID="$(resolve SANDBOX_GID .sandbox.gid "$(id -g)")"
 export SANDBOX_USERNAME="$(resolve SANDBOX_USERNAME .sandbox.username "$(id -un)")"
 export SANDBOX_HOME="$(resolve SANDBOX_HOME .sandbox.home "/home/$SANDBOX_USERNAME")"
 
-# Claude Code version to run inside the container.
-# Precedence: env var > workspace config > user config > host's claude version.
-CLAUDE_VERSION="$(resolve CLAUDE_VERSION .claude.version "$(claude --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)")"
-CLAUDE_PACKAGE="@anthropic-ai/claude-code${CLAUDE_VERSION:+@${CLAUDE_VERSION}}"
+SELECTED_TOOL="$(resolve_tool "$CLI_TOOL")"
+configure_tool "$SELECTED_TOOL"
 
 # Git identity and host-config passthrough.
 # Not exported: these are consumed only by this launcher to build -e / -v flags
@@ -100,16 +212,6 @@ SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH="$(resolve SANDBOX_GIT_HOST_CONFIG_PASSTHROU
 # Cleanup toggle. When false, the cleanup container does not run.
 # Precedence: env var > workspace config > user config > default (true).
 SANDBOX_CLEANUP="$(resolve SANDBOX_CLEANUP .sandbox.cleanup true)"
-
-# Claude config passthrough: mount host ~/.claude and ~/.claude.json into the container.
-# When false, neither is mounted (useful with ANTHROPIC_API_KEY only for isolation).
-CLAUDE_CONFIG_PASSTHROUGH="$(resolve CLAUDE_CONFIG_PASSTHROUGH .claude.config_passthrough true)"
-
-# Custom host paths for the Claude config directory and file.
-# Container-side path is always ${SANDBOX_HOME}/.claude and ${SANDBOX_HOME}/.claude.json
-# (that's where Claude Code expects them); only the host-side path is configurable.
-CLAUDE_CONFIG_DIR="$(resolve CLAUDE_CONFIG_DIR .claude.config_dir "$HOME/.claude")"
-CLAUDE_CONFIG_FILE="$(resolve CLAUDE_CONFIG_FILE .claude.config_file "$HOME/.claude.json")"
 
 # Per-user project name keeps containers and volumes isolated on multi-user machines.
 # Each user gets their own container and their own claude-agent-home volume.
@@ -126,7 +228,7 @@ else
 fi
 
 # Git config inheritance: bind-mount host ~/.gitconfig and ~/.config/git/
-# read-only when they exist AND host_config_passthrough is true, so Claude
+# read-only when they exist AND host_config_passthrough is true, so the selected agent
 # uses the host user's git identity. Conditional mounting avoids Docker
 # creating empty stub dirs on the host.
 GIT_VOLUME_ARGS=()
@@ -136,19 +238,6 @@ if [[ "$SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH" == "true" ]]; then
     fi
     if [[ -d "$HOME/.config/git" ]]; then
         GIT_VOLUME_ARGS+=(-v "$HOME/.config/git:${SANDBOX_HOME}/.config/git:ro")
-    fi
-fi
-
-# Claude config mounts: conditional on passthrough and host file existence.
-# Read/write - Claude Code writes session state, settings, etc. here.
-# Host paths are configurable via claude.config_dir / claude.config_file.
-CLAUDE_VOLUME_ARGS=()
-if [[ "$CLAUDE_CONFIG_PASSTHROUGH" == "true" ]]; then
-    if [[ -d "$CLAUDE_CONFIG_DIR" ]]; then
-        CLAUDE_VOLUME_ARGS+=(-v "$CLAUDE_CONFIG_DIR:${SANDBOX_HOME}/.claude")
-    fi
-    if [[ -f "$CLAUDE_CONFIG_FILE" ]]; then
-        CLAUDE_VOLUME_ARGS+=(-v "$CLAUDE_CONFIG_FILE:${SANDBOX_HOME}/.claude.json")
     fi
 fi
 
@@ -185,16 +274,18 @@ if [[ -n "$SANDBOX_GIT_POLICY_ALLOW" || -n "$SANDBOX_GIT_POLICY_BLOCK" ]]; then
     trap 'rm -f "$POLICY_FILE"' EXIT
 fi
 
-# Run Claude in a one-shot container that is removed automatically on exit.
+# Run the selected coding agent in a one-shot container.
 # Each invocation gets its own container; named volumes (claude-agent-home) persist across runs.
 docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
   --rm \
   -e HOME="${SANDBOX_HOME}" \
+  "${TOOL_ENV_ARGS[@]}" \
   "${GIT_ENV_ARGS[@]}" \
   "${GIT_VOLUME_ARGS[@]}" \
-  "${CLAUDE_VOLUME_ARGS[@]}" \
+  "${TOOL_VOLUME_ARGS[@]}" \
   "${GIT_POLICY_VOLUME_ARGS[@]}" \
-  -it ai-agent npx --yes "$CLAUDE_PACKAGE" --dangerously-skip-permissions
+  -it ai-agent \
+  npx --yes "$TOOL_PACKAGE" "${TOOL_DEFAULT_ARGS[@]}" "${TOOL_USER_ARGS[@]}"
 
 # Clean up empty stub directories that Docker created inside the claude-agent-home volume
 # as mount-point parents for WORKSPACE_DIR. This must run after the main container exits

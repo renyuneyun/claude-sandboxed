@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This is a sandboxed Claude Code launcher. Read `README.md` for a full description of how it works.
+This is a Docker-sandboxed coding-agent launcher with first-class Claude Code and Codex CLI profiles. Read `README.md` for a full description of how it works.
 
 ## Files
 

@@ -630,6 +630,33 @@ else
     bad "resolve: claude.config_file user fills gap (got '$result')"
 fi
 
+printf 'tool: codex\ncodex:\n  version: "1.2.3"\n  config_passthrough: false\n  config_dir: /workspace/codex\n' > "$TMPDIR/codex-workspace.yaml"
+printf 'tool: claude\ncodex:\n  version: "4.5.6"\n  config_passthrough: true\n  config_dir: /user/codex\n' > "$TMPDIR/codex-user.yaml"
+
+WORKSPACE_CONFIG="$TMPDIR/codex-workspace.yaml"
+USER_CONFIG="$TMPDIR/codex-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+unset SANDBOX_TOOL CODEX_VERSION CODEX_CONFIG_PASSTHROUGH CODEX_CONFIG_DIR
+
+result=$(resolve SANDBOX_TOOL .tool claude)
+[[ "$result" == "codex" ]] && ok "resolve: tool workspace wins" || bad "resolve: tool workspace wins (got '$result')"
+result=$(resolve CODEX_VERSION .codex.version "")
+[[ "$result" == "1.2.3" ]] && ok "resolve: codex.version workspace wins" || bad "resolve: codex.version workspace wins (got '$result')"
+result=$(resolve CODEX_CONFIG_PASSTHROUGH .codex.config_passthrough true)
+[[ "$result" == "false" ]] && ok "resolve: codex passthrough false preserved" || bad "resolve: codex passthrough false (got '$result')"
+result=$(resolve CODEX_CONFIG_DIR .codex.config_dir "$HOME/.codex")
+[[ "$result" == "/workspace/codex" ]] && ok "resolve: codex config dir workspace wins" || bad "resolve: codex config dir (got '$result')"
+
+CODEX_VERSION=9.9.9
+result=$(resolve CODEX_VERSION .codex.version "")
+[[ "$result" == "9.9.9" ]] && ok "resolve: codex.version env wins" || bad "resolve: codex.version env wins (got '$result')"
+unset CODEX_VERSION
+
+WORKSPACE_CONFIG_VALID=false
+result=$(resolve CODEX_VERSION .codex.version "")
+[[ "$result" == "4.5.6" ]] && ok "resolve: codex.version user fallback" || bad "resolve: codex.version user fallback (got '$result')"
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]] || exit 1

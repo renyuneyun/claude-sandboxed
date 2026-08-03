@@ -1,6 +1,6 @@
 # claude-sandboxed
 
-Runs [Claude Code](https://github.com/anthropics/claude-code) inside a Docker sandbox with a shared workspace mount and git push protection.
+Runs Claude Code or Codex CLI inside a Docker sandbox with a shared workspace mount and git push protection. The package and command remain named `claude-sandboxed`; renaming is deferred.
 
 The main rationale of this project is to run Claude Code in autonomous mode (with `--dangerously-skip-permissions`) more safely, reducing harms to the user's machine / files. Whitebox protection is the main design, to provide deterministic guarantees (contrary to Anthrophic's probabilistic classifier).
 
@@ -10,7 +10,7 @@ The main rationale of this project is to run Claude Code in autonomous mode (wit
 ## Requirements
 
 - Docker with the Compose plugin (`docker compose`)
-- A valid Claude Code session or configuration using external APIs (`~/.claude` credentials)
+- A valid session or API key for the selected tool (`~/.claude` / `ANTHROPIC_API_KEY`, or `~/.codex` / `OPENAI_API_KEY`)
 - `yq` (only if using config files - see [Configuration](#configuration))
 
 ## Installation
@@ -44,16 +44,18 @@ Any standard `<prefix>/bin` + `<prefix>/share` layout works (Homebrew `/opt/home
 ## Usage
 
 ```sh
-# Sandbox the current directory
 claude-sandboxed
-
-# Sandbox a specific directory
-claude-sandboxed ~/projects/my-app
+claude-sandboxed --tool codex
+claude-sandboxed --tool codex ~/projects/my-app
+claude-sandboxed --tool codex ~/projects/my-app -- --model gpt-5.4
+claude-sandboxed ~/projects/my-app -- --resume
 ```
+
+Claude is the default. Tool selection precedence is CLI `--tool` > `SANDBOX_TOOL` > workspace `tool` > user `tool` > Claude. Arguments after `--` are passed unchanged to the selected tool.
 
 Set `CLAUDE_SANDBOXED_DIR` to override the directory containing `docker-compose.yml`.
 
-Set `CLAUDE_VERSION` to pin a specific Claude Code version inside the container (e.g. `CLAUDE_VERSION=2.1.152`). Defaults to the version installed on the host.
+Set `CLAUDE_VERSION` or `CODEX_VERSION` to pin the selected tool version inside the container. Each defaults to the corresponding host CLI version, or npm's latest when that CLI is not installed.
 
 ## Customization
 
@@ -80,11 +82,18 @@ Edit the copy, uncommenting the lines you want to change. All fields are comment
 Schema (all fields optional):
 
 ```yaml
+tool: codex                       # claude or codex; default: claude
+
 claude:
   version: "2.1.152"            # string,  default: host's claude version
   config_passthrough: true      # bool,    default: true
   config_dir: ~/.claude         # string,  default: ~/.claude
   config_file: ~/.claude.json   # string,  default: ~/.claude.json
+
+codex:
+  version: "1.2.3"              # string,  default: host's codex version
+  config_passthrough: true      # bool,    default: true
+  config_dir: ~/.codex          # string,  default: ~/.codex
 
 sandbox:
   uid: 1000          # integer, default: $(id -u)
@@ -164,7 +173,7 @@ Env var overrides: `SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, `S
 
 **Caveat:** `git config user.name` (the command) only reads config files - it ignores the env vars. So when passthrough is on and identity is overridden, `git config user.name` still prints the host's value. Commits are still authored correctly. `git var GIT_AUTHOR_IDENT` is the one git command that does respect the env vars.
 
-### Claude version
+### Tool versions
 
 Pin a specific Claude Code version via config instead of the `CLAUDE_VERSION` env var:
 
@@ -174,6 +183,13 @@ claude:
 ```
 
 Same precedence as other knobs: env var > workspace config > user config > host's installed version.
+
+Codex mirrors this with `codex.version` and `CODEX_VERSION`:
+
+```yaml
+codex:
+  version: "1.2.3"
+```
 
 ### Claude config passthrough
 
@@ -195,6 +211,10 @@ claude:
 ```
 
 The container-side path is always `${SANDBOX_HOME}/.claude` and `${SANDBOX_HOME}/.claude.json` (that's where Claude Code expects them); only the host-side path changes. This lets you share a dedicated Claude config across projects or use a config that differs from your host user's default.
+
+### Codex config passthrough
+
+Codex similarly bind-mounts the host's `~/.codex` directory read/write at `${SANDBOX_HOME}/.codex`. Disable it independently with `codex.config_passthrough: false`, or choose a custom host path with `codex.config_dir`. The matching environment overrides are `CODEX_CONFIG_PASSTHROUGH` and `CODEX_CONFIG_DIR`.
 
 ### Cleanup
 
@@ -240,9 +260,7 @@ The file is only present when `git.policy` is set. When neither `allow` nor `blo
 
 ### Authentication
 
-Claude Code uses credentials from `~/.claude` and `~/.claude.json`, which are bind-mounted from the host (read/write).
-
-If `ANTHROPIC_API_KEY` is set in your environment it is passed into the container automatically, avoiding keyring re-authentication inside the sandbox.
+Claude Code uses `~/.claude`, `~/.claude.json`, and optionally `ANTHROPIC_API_KEY`. Codex CLI uses `~/.codex` and optionally `OPENAI_API_KEY`. Existing config paths are bind-mounted read/write by default, and passthrough can be disabled independently for each profile. API keys are forwarded only when present.
 
 ### Git policy
 
@@ -301,7 +319,8 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [ ] Additional paths
 - [ ] **Alternative Claude config and env** — use a dedicated config path for Claude Code for better isolation
 - [ ] **Network isolation** — container has its own network, isolated from the host
-- [ ] **More tools** — support more tools / coding agents apart from Claude Code
+- [x] **More tools** — first-class Claude Code and Codex CLI profiles
+    - [ ] Additional built-in coding agents
 - [ ] **More runtimes** — support other runtimes than Docker
 
 ## Testing

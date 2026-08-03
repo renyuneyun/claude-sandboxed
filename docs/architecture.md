@@ -2,17 +2,19 @@
 
 ## Overview
 
-1. The launcher runs `docker compose run --rm`, starting a fresh container per invocation.
-2. The container entrypoint runs as root and:
-   a. Creates the target user and group (mirroring host UID/GID) if they do not already exist.
-   b. Configures git system-wide to block all remote pushes.
-   c. Drops to the target user via `runuser` and exec-s Claude Code.
-3. The container is removed automatically on exit (`--rm`); named volumes persist across runs.
-4. After the main container exits, a second one-shot `cleanup` container removes any empty stub directories that Docker created inside the `claude-agent-home` volume as mount-point parents for `WORKSPACE_DIR`. This step only runs when `WORKSPACE_DIR` is nested under `SANDBOX_HOME`.
+1. The launcher parses its own options, one optional workspace, and the exact arguments following `--`.
+2. It resolves the workspace, config files, and mirrored container identity.
+3. It selects a profile using CLI `--tool` > `SANDBOX_TOOL` > workspace `tool` > user `tool` > Claude.
+4. The profile chooses its npm package, host-derived or pinned version, autonomy flag, optional API key, and read/write config binds.
+5. The launcher assembles conditional read-only git-config binds, identity overrides, and an optional generated read-only policy bind.
+6. It runs `docker compose run --rm`, starting a fresh `ai-agent` container in the per-UID Compose project.
+7. The root entrypoint creates the mirrored user/group when needed, configures push protection, drops privileges, and execs the selected coding agent.
+8. The selected coding agent works in the bind-mounted workspace under the git wrapper policy. The container is removed on exit; named volumes persist.
+9. When enabled and applicable, a one-shot `cleanup` container removes empty mount-point parent stubs; the generated policy file is removed by the launcher exit trap.
 
-Claude Code is granted `--dangerously-skip-permissions` to operate fully autonomously. Running it inside a container limits the blast radius: it can freely read and write the mounted workspace, but cannot touch the rest of the host filesystem and cannot push to remote repositories.
+Claude receives `--dangerously-skip-permissions`; Codex receives `--dangerously-bypass-approvals-and-sandbox`. The container limits the blast radius while the selected coding agent operates autonomously.
 
-Multiple sessions can run in parallel — each invocation gets its own container. Per-user project naming (`claude-sandboxed-${SANDBOX_UID}`) keeps containers and volumes isolated on multi-user machines.
+Multiple sessions can run in parallel. Per-user project naming (`claude-sandboxed-${SANDBOX_UID}`) isolates different host UIDs; Claude and Codex sessions for one UID share the same `claude-agent-home` named volume.
 
 ## Network isolation
 
@@ -20,34 +22,36 @@ Multiple sessions can run in parallel — each invocation gets its own container
 
 Improving network isolation is a planned future goal. The current focus is on filesystem and git-level sandboxing.
 
-## Volume layout
+## Volume layout and lifecycle
 
-| Mount | Container path | Purpose |
+| Mount | Scope | Lifecycle |
 |---|---|---|
-| Workspace arg (or `$PWD`) | Same absolute path as on host | The project Claude works on |
-| Named volume `claude-agent-home` | `$SANDBOX_HOME` | Persists npm cache, global tools, shell history across runs |
-| `~/.claude` (host) | `$SANDBOX_HOME/.claude` | Pass-through for Claude Code config and credentials |
-| `~/.claude.json` (host) | `$SANDBOX_HOME/.claude.json` | Pass-through for Claude account/session credentials |
-| `~/.gitconfig` (host, if exists) | `$SANDBOX_HOME/.gitconfig` | User-level git config (identity, aliases, signing keys) — read-only |
-| `~/.config/git/` (host, if exists) | `$SANDBOX_HOME/.config/git/` | XDG git config, attributes, ignores — read-only |
-| `git-wrapper` (compose dir) | `/usr/local/bin/git` | Git wrapper script (policy enforcement) — read-only |
+| Workspace bind | Selected project | Host files persist; container is ephemeral |
+| `claude-agent-home` named volume | Host UID | Shared across tools/workspaces/sessions until Docker removal |
+| Tool-config bind | Host user by default; configurable per workspace | Host files persist; read/write |
+| Git-config bind | Host user | Host files persist; read-only in container |
+| Generated policy bind | One launcher invocation | Temporary host file removed by exit trap; read-only |
+| Git-wrapper bind | Package installation | Persists with installation; read-only |
+
+The tool-config bind targets `${SANDBOX_HOME}/.claude` and `${SANDBOX_HOME}/.claude.json` for Claude, or `${SANDBOX_HOME}/.codex` for Codex. Each can be disabled independently. Bind mounts follow their host files' lifecycle; unlike them, the Docker-managed named volume outlives each ephemeral container.
 
 ## Container environment
 
-Two environment variables are set or forwarded inside the container:
+The sandbox marker is always set, and the selected profile's API key is forwarded only when present:
 
 | Variable | Source | Purpose |
 |---|---|---|
-| `IS_SANDBOX=1` | Hard-coded | Signals to Claude Code that it is running inside a sandbox, enabling `--dangerously-skip-permissions` |
-| `ANTHROPIC_API_KEY` | Host environment (if set) | Forwarded from the host so Claude Code can authenticate via API key without keyring access |
+| `IS_SANDBOX=1` | Hard-coded | Signals that the selected coding agent runs inside the external sandbox |
+| `ANTHROPIC_API_KEY` | Host environment (Claude, if set) | Authenticates Claude without host config |
+| `OPENAI_API_KEY` | Host environment (Codex, if set) | Authenticates Codex without host config |
 
 ## Root user mode
 
-When `SANDBOX_UID=0` the entrypoint skips user and group creation and does not call `runuser` — Claude Code runs directly as root inside the container. This is mainly useful for CI environments where the container already runs as root.
+When `SANDBOX_UID=0` the entrypoint skips user and group creation and does not call `runuser` — the selected coding agent runs directly as root inside the container. This is mainly useful for CI environments where the container already runs as root.
 
 ## Git config inheritance
 
-The host user's `~/.gitconfig` and `~/.config/git/` are bind-mounted into the container at the corresponding paths under `$SANDBOX_HOME`, read-only. Mounts are conditional: if the host path does not exist, the mount is skipped (git uses defaults). Read-only prevents Claude from modifying the host's git config.
+The host user's `~/.gitconfig` and `~/.config/git/` are bind-mounted into the container at the corresponding paths under `$SANDBOX_HOME`, read-only. Mounts are conditional: if the host path does not exist, the mount is skipped (git uses defaults). Read-only prevents the selected coding agent from modifying the host's git config.
 
 Git config precedence is system < global, so a user's `~/.gitconfig` could override `core.sshCommand` set via `git config --system`. This is acceptable because `git push` is blocked at the wrapper level (see below), and the threat model is accidental damage, not adversarial bypass.
 

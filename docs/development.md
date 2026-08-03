@@ -13,28 +13,31 @@ These must not be broken without updating all affected documentation:
 - `/usr/local/bin` must precede `/usr/bin` in the container's `PATH` (true for `node:22-bookworm` by default). If the base image changes, verify this.
 - The conditional `~/.gitconfig` and `~/.config/git/` mounts in `bin/claude-sandboxed` must check existence before mounting (avoids Docker creating empty stub dirs on the host).
 - The entrypoint's `git config --system` calls must use `/usr/bin/git` (not `git`). The wrapper at `/usr/local/bin/git` blocks `config`, which would break the `&&` chain and skip `runuser`, leaving Claude Code running as root.
-- The three volume mounts (workspace, home cache, credential pass-through) must remain.
+- The workspace bind, per-UID home named volume, and selected-tool config bind must remain.
 - `WORKSPACE_DIR` must be exported before `docker compose up` — the compose file interpolates it.
 - `SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_USERNAME`, and `SANDBOX_HOME` must be exported before `docker compose up` — the compose file interpolates them for volume paths and the user-creation entrypoint.
 - `SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, and `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH` are launcher-side only — they are NOT exported and NOT interpolated by the compose file. The launcher reads them to build `-e` and `-v` flags for `docker compose run`. Do not add them to the "must be exported" list above.
-- `CLAUDE_VERSION`, `CLAUDE_CONFIG_PASSTHROUGH`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CONFIG_FILE`, `SANDBOX_CLEANUP`, `SANDBOX_GIT_POLICY_ALLOW`, and `SANDBOX_GIT_POLICY_BLOCK` are launcher-side only — they are NOT exported and NOT interpolated by the compose file. The launcher reads them to build `-e` and `-v` flags for `docker compose run`.
-- The `~/.claude` and `~/.claude.json` mounts are in the launcher (`CLAUDE_VOLUME_ARGS`), not in `docker-compose.yml`. The compose file must not mount these paths.
+- `SANDBOX_TOOL`, all `CLAUDE_*` and all `CODEX_*` profile knobs, `SANDBOX_CLEANUP`, `SANDBOX_GIT_POLICY_ALLOW`, and `SANDBOX_GIT_POLICY_BLOCK` are launcher-side only — they are NOT exported and NOT interpolated by the compose file. The launcher reads them to choose/configure a profile and build `-e` and `-v` flags for `docker compose run`.
+- Selected-profile config mounts are in the launcher (`TOOL_VOLUME_ARGS`), not in `docker-compose.yml`. `TOOL_VOLUME_ARGS` replaces the former `CLAUDE_VOLUME_ARGS`; the compose file must not mount tool config paths.
+- Tool API keys are forwarded dynamically through `TOOL_ENV_ARGS` only when present. Do not add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` as static Compose environment entries.
+- `GIT_VOLUME_ARGS` remains the conditional read-only host git-config mounts. `GIT_POLICY_VOLUME_ARGS` remains the optional one-invocation generated policy bind.
 - The `GIT_POLICY_FILE` path (`/etc/claude-sandboxed/git-policy.conf`) is the contract between the launcher and the wrapper. Changing it requires updating both.
-- `resolve_list` must remain defined outside the main guard (for testability), same as `check_config` and `resolve`.
+- `resolve_list`, `parse_launcher_args`, `resolve_tool`, `detect_host_version`, and `configure_tool` must remain defined outside the main guard (for testability), same as `check_config` and `resolve`.
 - The policy file cleanup trap (`trap 'rm -f "$POLICY_FILE"' EXIT`) must remain. Without it, temp policy files leak in `/tmp`.
 - `WORKSPACE_DIR` must be resolved to an absolute path before `WORKSPACE_CONFIG` is derived from it (the workspace config path is `$WORKSPACE_DIR/.claude-sandboxed.yaml`).
 - Config file functions (`check_config`, `resolve`) must remain defined outside the main execution guard so tests can source the launcher and call them directly.
 - All `docker compose` invocations must pass `-p "$COMPOSE_PROJECT"` (set to `claude-sandboxed-${SANDBOX_UID}`) — this namespaces containers and volumes per user, preventing conflicts on multi-user machines.
+- The names `claude-agent-home`, `claude-sandboxed-${SANDBOX_UID}`, and `ai-agent`, plus all installed `claude-sandboxed` paths, are stable contracts and must remain unchanged.
 - The compose file resolution order must not be reordered without updating the section below.
 
 ## Config resolution
 
-Identity knobs (`SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_USERNAME`, `SANDBOX_HOME`), git knobs (`SANDBOX_GIT_IDENTITY_NAME`, `SANDBOX_GIT_IDENTITY_EMAIL`, `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH`), and the new knobs (`CLAUDE_VERSION`, `CLAUDE_CONFIG_PASSTHROUGH`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CONFIG_FILE`, `SANDBOX_CLEANUP`, `SANDBOX_GIT_POLICY_ALLOW`, `SANDBOX_GIT_POLICY_BLOCK`) are resolved per-knob from four sources in priority order:
+Identity, git, cleanup, policy, and tool-profile knobs (`SANDBOX_TOOL`, all `CLAUDE_*`, and all `CODEX_*`) are resolved per-knob from four sources in priority order:
 
 1. **Env var** (`SANDBOX_UID`, etc.) - if set and non-empty.
 2. **Workspace config** (`$WORKSPACE_DIR/.claude-sandboxed.yaml`) - if the key is present and non-null.
 3. **User config** (`${XDG_CONFIG_HOME:-$HOME/.config}/claude-sandboxed/config.yaml`) - if the key is present and non-null.
-4. **Default** - identity knobs: `$(id -u)`, `$(id -g)`, `$(id -un)`, `/home/$SANDBOX_USERNAME`. Git identity knobs: `""`, `""`. `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH`: `true`. `CLAUDE_VERSION`: host's claude version. `CLAUDE_CONFIG_PASSTHROUGH`: `true`. `CLAUDE_CONFIG_DIR`: `$HOME/.claude`. `CLAUDE_CONFIG_FILE`: `$HOME/.claude.json`. `SANDBOX_CLEANUP`: `true`. `SANDBOX_GIT_POLICY_ALLOW` / `SANDBOX_GIT_POLICY_BLOCK`: empty.
+4. **Default** - identity knobs: `$(id -u)`, `$(id -g)`, `$(id -un)`, `/home/$SANDBOX_USERNAME`. Git identity knobs: `""`, `""`. `SANDBOX_GIT_HOST_CONFIG_PASSTHROUGH`: `true`. `SANDBOX_TOOL`: `claude`. Each tool version uses its host CLI version, or npm's latest if absent. Both config passthrough toggles: `true`. Claude paths: `$HOME/.claude` and `$HOME/.claude.json`; Codex path: `$HOME/.codex`. `SANDBOX_CLEANUP`: `true`. `SANDBOX_GIT_POLICY_ALLOW` / `SANDBOX_GIT_POLICY_BLOCK`: empty.
 
 Two bash functions in `bin/claude-sandboxed` implement this:
 
@@ -83,6 +86,13 @@ Priority order (first match wins), implemented in `bin/claude-sandboxed`:
 19. **Git policy block:** with `git.policy.block: ["^stash pop"]`, `git stash pop` is blocked with a "[SECURITY]" message.
 20. **Git policy file:** `cat /etc/claude-sandboxed/git-policy.conf` inside the container shows the effective policy.
 21. **Git policy doesn't affect unmatched commands:** with `git.policy.allow: ["^reset"]`, `git push` is still blocked.
+22. **Default Claude:** `claude-sandboxed` launches Claude with its autonomy flag.
+23. **Codex host login:** `claude-sandboxed --tool codex` uses host `~/.codex` and the Codex autonomy flag.
+24. **Codex API-key isolation:** with passthrough disabled and `OPENAI_API_KEY` set, Codex starts without mounting host config.
+25. **Pinned versions:** verify both Claude and Codex YAML/env version knobs select the requested releases.
+26. **Exact passthrough:** arguments after `--`, including spaces and option-looking values, arrive unchanged.
+27. **Unsupported tool:** an unsupported `--tool` exits non-zero and lists Claude and Codex.
+28. **Concurrent profiles:** Claude and Codex containers are independent, their config binds differ, and they share only the documented per-UID `claude-agent-home` named volume.
 
 ## Automated tests
 
@@ -98,6 +108,7 @@ Current test suites:
 
 - `tests/git-wrapper/test.sh` — unit tests for the git wrapper script (policy enforcement, argument parsing). Uses a stubbed real git binary so tests run on the host without Docker.
 - `tests/config/test.sh` — unit tests for config resolution (`check_config`, `resolve`). Sources the launcher directly. Requires `yq` on `PATH`; skipped if `yq` is not installed.
+- `tests/launcher/test.sh` — unit tests for launcher argument parsing, tool selection, version detection, and Claude/Codex profile configuration.
 
 To add a new test suite, create `tests/<component>/test.sh` and make it executable. The runner picks it up automatically. A test script should print `PASS:` / `FAIL:` lines and exit non-zero on any failure.
 

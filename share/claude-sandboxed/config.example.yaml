@@ -7,6 +7,10 @@
 # All fields are optional. Uncomment and edit the values you want to change.
 # Precedence per knob: env var > workspace config > user config > built-in default.
 
+# Coding agent to run. Supported values: claude, codex.
+# Default: claude.
+# tool: codex
+
 claude:
   # Claude Code version to run inside the container.
   # Default: host's claude version (from `claude --version`).
@@ -24,6 +28,19 @@ claude:
   # Default: ~/.claude and ~/.claude.json respectively.
   # config_dir: /path/to/custom/.claude
   # config_file: /path/to/custom/.claude.json
+
+codex:
+  # Codex CLI version to run inside the container.
+  # Default: host's codex version; npm's latest when codex is not installed.
+  # version: "1.2.3"
+
+  # When false, the host Codex config directory is not mounted.
+  # Use OPENAI_API_KEY for authentication without host config. Default: true.
+  # config_passthrough: true
+
+  # Custom host path mounted at ${SANDBOX_HOME}/.codex.
+  # Default: ~/.codex.
+  # config_dir: /path/to/custom/.codex
 
 sandbox:
   # uid: 1000          # default: $(id -u)
