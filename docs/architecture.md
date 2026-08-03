@@ -18,7 +18,9 @@ Multiple sessions can run in parallel. Per-user project naming (`claude-sandboxe
 
 ## Network isolation
 
-**Current status: no network isolation.** The container uses `network_mode: host`, meaning it shares the host's network namespace. This was chosen for simplicity — it allows the container to access host-local services such as a proxy at `127.0.0.1:1080` without extra configuration.
+**Current status: no network isolation.** The container uses `network_mode: host`, meaning it shares the host's network namespace. This was chosen for simplicity and allows the container to reach host-local services such as a proxy at `127.0.0.1:1080`.
+
+Host networking provides reachability but does not copy host proxy settings or force traffic through a proxy. The launcher separately builds `PROXY_ENV_ARGS` from non-empty standard host proxy variables when `proxy.env_passthrough` is enabled, then passes those arguments to `docker compose run` before `npx` starts.
 
 Improving network isolation is a planned future goal. The current focus is on filesystem and git-level sandboxing.
 
@@ -37,13 +39,17 @@ The tool-config bind targets `${SANDBOX_HOME}/.claude` and `${SANDBOX_HOME}/.cla
 
 ## Container environment
 
-The sandbox marker is always set, and the selected profile's API key is forwarded only when present:
+The sandbox marker is always set. The selected profile's API key and enabled generic proxy variables are forwarded only when present:
 
 | Variable | Source | Purpose |
 |---|---|---|
 | `IS_SANDBOX=1` | Hard-coded | Signals that the selected coding agent runs inside the external sandbox |
 | `ANTHROPIC_API_KEY` | Host environment (Claude, if set) | Authenticates Claude without host config |
 | `OPENAI_API_KEY` | Host environment (Codex, if set) | Authenticates Codex without host config |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | Host environment (if non-empty and passthrough enabled) | Configures uppercase-aware proxy clients |
+| `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` | Host environment (if non-empty and passthrough enabled) | Configures lowercase-aware proxy clients |
+
+Proxy environment passthrough is tool-neutral and defaults to enabled. `SANDBOX_PROXY_ENV_PASSTHROUGH` / `proxy.env_passthrough` can disable it. Uppercase and lowercase forms are independent and values are forwarded unchanged; proxy URLs are not stored in YAML.
 
 ## Root user mode
 

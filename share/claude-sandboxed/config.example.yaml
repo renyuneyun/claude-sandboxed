@@ -42,6 +42,14 @@ codex:
   # Default: ~/.codex.
   # config_dir: /path/to/custom/.codex
 
+proxy:
+  # Forward non-empty HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, NO_PROXY and
+  # their lowercase equivalents from the host into the sandbox. This
+  # configures proxy-aware clients, including npx, Claude, and Codex.
+  # Set false if proxy URLs contain credentials you do not want exposed
+  # inside the container. Default: true.
+  # env_passthrough: true
+
 sandbox:
   # uid: 1000          # default: $(id -u)
   # gid: 1000          # default: $(id -g)

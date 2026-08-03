@@ -95,6 +95,9 @@ codex:
   config_passthrough: true      # bool,    default: true
   config_dir: ~/.codex          # string,  default: ~/.codex
 
+proxy:
+  env_passthrough: true         # bool,    default: true
+
 sandbox:
   uid: 1000          # integer, default: $(id -u)
   gid: 1000          # integer, default: $(id -g)
@@ -216,6 +219,32 @@ The container-side path is always `${SANDBOX_HOME}/.claude` and `${SANDBOX_HOME}
 
 Codex similarly bind-mounts the host's `~/.codex` directory read/write at `${SANDBOX_HOME}/.codex`. Disable it independently with `codex.config_passthrough: false`, or choose a custom host path with `codex.config_dir`. The matching environment overrides are `CODEX_CONFIG_PASSTHROUGH` and `CODEX_CONFIG_DIR`.
 
+### Proxy environment passthrough
+
+By default, the launcher forwards non-empty standard proxy variables from the host into the sandbox:
+
+- `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`
+- `http_proxy`, `https_proxy`, `all_proxy`, and `no_proxy`
+
+Uppercase and lowercase names are handled independently and values are preserved unchanged. This applies to both tool profiles and to the `npx` process that starts them. For example:
+
+```sh
+HTTP_PROXY=http://127.0.0.1:7890 \
+HTTPS_PROXY=http://127.0.0.1:7890 \
+claude-sandboxed --tool codex
+```
+
+The container uses host networking, so a proxy listening on the host at `127.0.0.1` is reachable. Host networking alone does not copy proxy settings or force clients through that proxy; the environment-variable passthrough configures proxy-aware clients to use it.
+
+Disable passthrough in YAML when proxy URLs contain credentials or when a workspace should not inherit the host proxy:
+
+```yaml
+proxy:
+  env_passthrough: false
+```
+
+The environment override is `SANDBOX_PROXY_ENV_PASSTHROUGH=false`. It follows the normal precedence: environment override > workspace config > user config > default. Proxy URLs are intentionally not accepted in YAML; keep them in the host environment.
+
 ### Cleanup
 
 The launcher runs a small `cleanup` container after the main container exits to remove empty stub directories Docker may have created inside the `claude-agent-home` volume. Disable it to skip that one quick container startup:
@@ -300,6 +329,7 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [x] **Claude config passthrough** — the entire `~/.claude` directory (credentials, skills, settings, etc.) and `ANTHROPIC_API_KEY` are forwarded automatically
     - [x] **Host identity mirroring** — Claude Code runs as your host user (same UID, GID, username, and home path), so file ownership is consistent
     - [x] **Host network access** — the container shares the host network, so host-local services are reachable from inside (e.g. a proxy at `127.0.0.1:1080`, or a network-based MCP server running on the host)
+    - [x] **Proxy environment passthrough** — standard uppercase and lowercase proxy variables are forwarded by default, with a global or per-workspace opt-out
     - [x] **Automatic cleanup** — the container is removed on exit
     - [ ] **Additional mountpoints** — Additional paths to mount into the container
         - [ ] Mechanism with manual switches

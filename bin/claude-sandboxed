@@ -158,6 +158,22 @@ configure_tool() {
   esac
 }
 
+# Build Docker environment arguments for conventional proxy variables.
+# Each non-empty uppercase/lowercase host variable is forwarded independently.
+configure_proxy_env() {
+  PROXY_ENV_ARGS=()
+  [[ "$SANDBOX_PROXY_ENV_PASSTHROUGH" == "true" ]] || return 0
+
+  local proxy_name
+  for proxy_name in \
+    HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY \
+    http_proxy https_proxy all_proxy no_proxy; do
+    [[ -n "${!proxy_name:-}" ]] &&
+      PROXY_ENV_ARGS+=(-e "$proxy_name=${!proxy_name}")
+  done
+  return 0
+}
+
 # --- Main execution (only runs when executed, not sourced) ---
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -200,6 +216,10 @@ export SANDBOX_HOME="$(resolve SANDBOX_HOME .sandbox.home "/home/$SANDBOX_USERNA
 
 SELECTED_TOOL="$(resolve_tool "$CLI_TOOL")"
 configure_tool "$SELECTED_TOOL"
+
+# Proxy environment passthrough applies to npx and every tool profile.
+SANDBOX_PROXY_ENV_PASSTHROUGH="$(resolve SANDBOX_PROXY_ENV_PASSTHROUGH .proxy.env_passthrough true)"
+configure_proxy_env
 
 # Git identity and host-config passthrough.
 # Not exported: these are consumed only by this launcher to build -e / -v flags
@@ -279,6 +299,7 @@ fi
 docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
   --rm \
   -e HOME="${SANDBOX_HOME}" \
+  "${PROXY_ENV_ARGS[@]}" \
   "${TOOL_ENV_ARGS[@]}" \
   "${GIT_ENV_ARGS[@]}" \
   "${GIT_VOLUME_ARGS[@]}" \
