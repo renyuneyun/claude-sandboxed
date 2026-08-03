@@ -295,7 +295,7 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [x] **Isolated environment and cache** — packages and global tools install into a persistent container volume, never touching the host
     - [x] **Git operation policy** — a wrapper script blocks destructive git operations (push, reset, rebase, clean, commit --amend, branch -D, tag -f, etc.) while allowing non-destructive and appending-only operations (commit, add, status, log, fetch, merge, branch -d, tag -d, etc.)
     - [x] **Git config inheritance** — the host user's `~/.gitconfig` and `~/.config/git/` are bind-mounted read-only so Claude commits with the host user's identity
-    - [ ] **Sandbox information** — Allow the runtime (Claude Code, e.g.) to see that it's in the sandbox rather than on host system (later configurable)
+    - [x] **Sandbox information** — The runtime can detect that it is in the sandbox via `IS_SANDBOX=1`
 - [x] **Transparent isolation** — the sandbox boundary is invisible to Claude Code: it sees the same user identity, credentials, paths, and Claude settings as on the host, while the rest of the system stays out of reach
     - [x] **Claude config passthrough** — the entire `~/.claude` directory (credentials, skills, settings, etc.) and `ANTHROPIC_API_KEY` are forwarded automatically
     - [x] **Host identity mirroring** — Claude Code runs as your host user (same UID, GID, username, and home path), so file ownership is consistent
@@ -307,8 +307,12 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [ ] **Safe passthrough** — safely passthrough files and folders between host and sandbox, such as package caches
 - [x] **Parallel sessions** — each invocation runs as an independent one-shot container, so multiple sandboxed sessions can run concurrently
 - [x] **Pinnable Claude version** — set `CLAUDE_VERSION` to lock a specific Claude Code release inside the container
-- [ ] **Automated tests**
-- [ ] **Customization** — set preferences through config files (with docs and examples)
+- [x] **Automated tests** — host-side test suites cover the launcher, config resolution, and git wrapper
+    - [x] **Launcher and profile tests** — argument parsing, tool selection, version detection, profile configuration, and exact argument passthrough
+    - [x] **Configuration tests** — YAML validation and env > workspace > user > default resolution
+    - [x] **Git wrapper tests** — destructive-operation policy enforcement and argument parsing
+    - [ ] **Docker-backed runtime tests** — end-to-end verification inside real containers
+- [x] **Customization** — set preferences through config files (with docs and examples)
     - [x] **Config foundation** — YAML config loading (`yq`), env > workspace > user > default precedence, identity knobs (`sandbox_uid`/`gid`/`username`/`home`)
     - [ ] All isolation designs should be customizable
     - [x] **Git policy** — regex-based allow/block lists (`git.policy.allow` / `git.policy.block`) that patch the default wrapper policy
@@ -317,9 +321,10 @@ Inside the sandbox, `git` is a wrapper script that blocks destructive operations
     - [x] **Claude config passthrough** — toggle `~/.claude` mount via `claude.config_passthrough`
     - [x] **Cleanup** — toggle cleanup container via `sandbox.cleanup`
     - [ ] Additional paths
-- [ ] **Alternative Claude config and env** — use a dedicated config path for Claude Code for better isolation
+- [x] **Alternative Claude config and env** — use dedicated Claude config paths, disable config passthrough, or authenticate with `ANTHROPIC_API_KEY`
 - [ ] **Network isolation** — container has its own network, isolated from the host
 - [x] **More tools** — first-class Claude Code and Codex CLI profiles
+    - [x] **Codex version** — pin Codex CLI via `CODEX_VERSION` or `codex.version`
     - [ ] Additional built-in coding agents
 - [ ] **More runtimes** — support other runtimes than Docker
 
