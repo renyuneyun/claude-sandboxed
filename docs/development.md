@@ -70,7 +70,7 @@ Priority order (first match wins), implemented in `bin/claude-sandboxed`:
 3. **Override mode:** `CLAUDE_SANDBOXED_DIR=/some/path claude-sandboxed` — should use that path regardless.
 4. **Push protection:** inside the container, `git push` should fail with the security message.
 5. **Git wrapper:** inside the container, `which git` shows `/usr/local/bin/git`.
-6. **Git policy - blocked:** inside the container, `git push`, `git reset --hard`, `git commit --amend`, `git clean -fd`, `git rebase`, `git config --get user.name` all fail with `[SECURITY]` messages.
+6. **Git policy - blocked:** inside the container, `git push`, `git reset --hard`, `git commit --amend`, `git clean -fd`, `git rebase`, `git config --get user.name`, `git commit-tree`, `git update-ref` all fail with `[SECURITY]` messages.
 7. **Git policy - allowed:** inside the container, `git status`, `git log`, `git add`, `git commit -m test` (in a repo), `git switch`, `git fetch` all work.
 8. **Git config inheritance:** with `~/.gitconfig` on the host, commits inside the container use the host user's identity. Without `~/.gitconfig`, the container starts and git uses defaults.
 9. **Automated tests:** run `bash tests/run-all.sh` from the repo root — all test suites pass.
