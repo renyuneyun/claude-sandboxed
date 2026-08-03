@@ -203,6 +203,24 @@ assert_allowed "git gc" gc
 assert_allowed "git rm --cach file.txt" rm --cach file.txt
 assert_blocked "git gc --pru" gc --pru
 
+# Task 7: history-bypass subcommands (plumbing that circumvents rebase/filter-branch blocks)
+assert_blocked "git commit-tree" commit-tree
+assert_blocked "git commit-tree -p deadbeef -m msg" commit-tree -p deadbeef -m msg
+assert_blocked "git update-ref" update-ref
+assert_blocked "git update-ref refs/heads/x deadbeef" update-ref refs/heads/x deadbeef
+assert_blocked "git update-ref -d refs/heads/x" update-ref -d refs/heads/x
+assert_blocked "git update-ref --force refs/heads/x deadbeef" update-ref --force refs/heads/x deadbeef
+assert_blocked "git replace" replace
+assert_blocked "git replace deadbeef feedface" replace deadbeef feedface
+assert_blocked "git replace -d deadbeef" replace -d deadbeef
+assert_blocked "git fast-import" fast-import
+assert_blocked "git prune" prune
+assert_blocked "git prune --expire=now" prune --expire=now
+assert_blocked "git symbolic-ref" symbolic-ref
+assert_blocked "git symbolic-ref HEAD" symbolic-ref HEAD
+assert_blocked "git symbolic-ref HEAD refs/heads/x" symbolic-ref HEAD refs/heads/x
+assert_blocked "git symbolic-ref -d HEAD" symbolic-ref -d HEAD
+
 # --- Git policy file tests ---
 
 POLICY_TMP="$(mktemp)"

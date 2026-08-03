@@ -84,7 +84,7 @@ fi
 # --- Policy checks ---
 
 case "$subcommand" in
-    push|reset|rebase|filter-branch|filter-repo|clean|config)
+    push|reset|rebase|filter-branch|filter-repo|clean|config|commit-tree|update-ref|replace|fast-import|prune|symbolic-ref)
         block "git $subcommand is blocked by claude-sandboxed."
         ;;
     reflog)
