@@ -47,6 +47,9 @@ fi
 # Block helper: print security message and exit 1.
 block() {
     echo "[SECURITY] $1" >&2
+    echo "[SECURITY] This is intentional. Do not bypass it. git push is always blocked; other destructive operations are generally prohibited." >&2
+    echo "[SECURITY] Reconsider whether the underlying operation is genuinely needed and aligns with the user's intent, rather than the specific command you attempted." >&2
+    echo "[SECURITY] The sandbox is for autonomous work. Do not ask the user to authorize individual operations; escalate only as a last resort if no in-sandbox approach exists." >&2
     exit 1
 }
 

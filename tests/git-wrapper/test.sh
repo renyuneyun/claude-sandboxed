@@ -221,6 +221,16 @@ assert_blocked "git symbolic-ref HEAD" symbolic-ref HEAD
 assert_blocked "git symbolic-ref HEAD refs/heads/x" symbolic-ref HEAD refs/heads/x
 assert_blocked "git symbolic-ref -d HEAD" symbolic-ref -d HEAD
 
+# Task 8: block message includes bypass guidance
+err="$(REAL_GIT="$STUB_DIR/git" "$WRAPPER" push 2>&1 >/dev/null)"
+if [[ "$err" == *"Do not bypass"* && "$err" == *"always blocked"* && "$err" == *"Reconsider"* && "$err" == *"autonomous work"* ]]; then
+    echo "PASS: block message includes bypass guidance"
+    pass=$((pass+1))
+else
+    echo "FAIL: block message missing bypass guidance (got: $err)"
+    fail=$((fail+1))
+fi
+
 # --- Git policy file tests ---
 
 POLICY_TMP="$(mktemp)"
