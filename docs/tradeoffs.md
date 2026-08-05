@@ -28,7 +28,9 @@ The container entrypoint runs as root so it can create the target user/group and
 
 ### Current status: `network_mode: host`
 
-The container shares the host's network namespace. This means it has unrestricted outbound access and can reach host-local services (e.g. a proxy at `127.0.0.1:7890`) without any extra configuration.
+The container shares the host's network namespace. This means it has unrestricted outbound access and can reach host-local services (e.g. a proxy at `127.0.0.1:7890`) without bridge or address translation configuration.
+
+Reachability is separate from proxy selection: host networking does not copy the host's proxy environment or force traffic through a proxy. By default the launcher forwards non-empty uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` variables. Users can disable this with `proxy.env_passthrough: false` or `SANDBOX_PROXY_ENV_PASSTHROUGH=false`, particularly when proxy URLs contain credentials that should not enter the container.
 
 **Why chosen:** Simplicity. Getting Claude Code's MCP servers, npm installs, and user proxies to work through a custom network configuration adds friction that was not worth addressing before filesystem sandboxing was settled.
 

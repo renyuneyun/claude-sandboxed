@@ -24,6 +24,49 @@ assert_eq() {
     if [[ "$actual" == "$expected" ]]; then ok "$name"; else bad "$name (expected '$expected', got '$actual')"; fi
 }
 
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
+unset http_proxy https_proxy all_proxy no_proxy
+
+if declare -F configure_proxy_env >/dev/null; then
+    SANDBOX_PROXY_ENV_PASSTHROUGH=true
+    HTTP_PROXY='http://uppercase-http.test:8001'
+    HTTPS_PROXY='http://user:p@ss@uppercase-https.test:8002/path with space'
+    ALL_PROXY='socks5://uppercase-all.test:8003'
+    NO_PROXY='localhost,127.0.0.1,.internal.test'
+    http_proxy='http://lowercase-http.test:9001'
+    https_proxy='http://lowercase-https.test:9002'
+    all_proxy='socks5://lowercase-all.test:9003'
+    no_proxy='localhost,.lowercase.test'
+    configure_proxy_env
+    assert_eq "proxy: all eight variables produce argument pairs" "16" "${#PROXY_ENV_ARGS[@]}"
+    PROXY_JOINED="$(printf '<%s>' "${PROXY_ENV_ARGS[@]}")"
+    [[ "$PROXY_JOINED" == *'<HTTPS_PROXY=http://user:p@ss@uppercase-https.test:8002/path with space>'* ]] &&
+      ok "proxy: values preserve spaces and punctuation" ||
+      bad "proxy: values preserve spaces and punctuation ($PROXY_JOINED)"
+    [[ "$PROXY_JOINED" == *'<HTTP_PROXY=http://uppercase-http.test:8001>'* &&
+       "$PROXY_JOINED" == *'<ALL_PROXY=socks5://uppercase-all.test:8003>'* &&
+       "$PROXY_JOINED" == *'<NO_PROXY=localhost,127.0.0.1,.internal.test>'* &&
+       "$PROXY_JOINED" == *'<http_proxy=http://lowercase-http.test:9001>'* &&
+       "$PROXY_JOINED" == *'<https_proxy=http://lowercase-https.test:9002>'* &&
+       "$PROXY_JOINED" == *'<all_proxy=socks5://lowercase-all.test:9003>'* &&
+       "$PROXY_JOINED" == *'<no_proxy=localhost,.lowercase.test>'* ]] &&
+      ok "proxy: uppercase and lowercase names are forwarded independently" ||
+      bad "proxy: uppercase and lowercase names ($PROXY_JOINED)"
+
+    HTTPS_PROXY=
+    configure_proxy_env
+    assert_eq "proxy: empty variables are omitted" "14" "${#PROXY_ENV_ARGS[@]}"
+
+    SANDBOX_PROXY_ENV_PASSTHROUGH=false
+    configure_proxy_env
+    assert_eq "proxy: disabled passthrough emits no arguments" "0" "${#PROXY_ENV_ARGS[@]}"
+else
+    bad "proxy: configure_proxy_env function exists"
+fi
+
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
+unset http_proxy https_proxy all_proxy no_proxy SANDBOX_PROXY_ENV_PASSTHROUGH
+
 parse_launcher_args
 assert_eq "parse: default workspace is empty sentinel" "" "$WORKSPACE_ARG"
 assert_eq "parse: no CLI tool override" "" "$CLI_TOOL"
@@ -154,6 +197,10 @@ run_captured_launcher() {
     SANDBOX_CLEANUP=false \
     CLAUDE_VERSION=integration-test \
     CODEX_VERSION=integration-test \
+    HTTP_PROXY="${TEST_HTTP_PROXY:-}" \
+    HTTPS_PROXY= ALL_PROXY= NO_PROXY= \
+    http_proxy= https_proxy= all_proxy= no_proxy= \
+    SANDBOX_PROXY_ENV_PASSTHROUGH="${TEST_PROXY_PASSTHROUGH:-true}" \
     CLAUDE_SANDBOXED_DIR="$SCRIPT_DIR/../../share/claude-sandboxed" \
     PATH="$capture_dir/bin:$PATH" \
       bash "$LAUNCHER" "$@"
@@ -162,6 +209,7 @@ run_captured_launcher() {
 
 CAPTURE_DIR="$(mktemp -d)"
 PROFILE_TMP_DIRS+=("$CAPTURE_DIR")
+TEST_HTTP_PROXY='http://codex-proxy.test:7890'
 run_captured_launcher "$CAPTURE_DIR" --tool codex "$SCRIPT_DIR/../.." -- --model "gpt test" resume
 CAPTURED_JOINED="$(printf '<%s>' "${CAPTURED_DOCKER_ARGS[@]}")"
 [[ "$CAPTURED_JOINED" == *"<@openai/codex"* ]] &&
@@ -170,14 +218,22 @@ CAPTURED_JOINED="$(printf '<%s>' "${CAPTURED_DOCKER_ARGS[@]}")"
 [[ "$CAPTURED_JOINED" == *"<--dangerously-bypass-approvals-and-sandbox><--model><gpt test><resume>"* ]] &&
   ok "integration: defaults precede exact passthrough args" ||
   bad "integration: passthrough ordering ($CAPTURED_JOINED)"
+[[ "$CAPTURED_JOINED" == *"<-e><HTTP_PROXY=http://codex-proxy.test:7890>"* ]] &&
+  ok "integration: proxy reaches Codex Docker invocation" ||
+  bad "integration: proxy reaches Codex Docker invocation ($CAPTURED_JOINED)"
 
 CAPTURE_DIR_2="$(mktemp -d)"
 PROFILE_TMP_DIRS+=("$CAPTURE_DIR_2")
+TEST_PROXY_PASSTHROUGH=false
 run_captured_launcher "$CAPTURE_DIR_2" "$SCRIPT_DIR/../.."
 CAPTURED_JOINED="$(printf '<%s>' "${CAPTURED_DOCKER_ARGS[@]}")"
 [[ "$CAPTURED_JOINED" == *"<@anthropic-ai/claude-code"*"<--dangerously-skip-permissions>"* ]] &&
   ok "integration: default invocation remains Claude" ||
   bad "integration: default invocation remains Claude ($CAPTURED_JOINED)"
+[[ "$CAPTURED_JOINED" != *"<HTTP_PROXY=http://codex-proxy.test:7890>"* ]] &&
+  ok "integration: disabled proxy does not reach Docker" ||
+  bad "integration: disabled proxy reaches Docker ($CAPTURED_JOINED)"
+unset TEST_HTTP_PROXY TEST_PROXY_PASSTHROUGH
 
 assert_rejected_before_docker() {
     local name="$1" expected_error="$2"

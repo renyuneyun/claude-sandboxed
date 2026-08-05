@@ -657,6 +657,33 @@ WORKSPACE_CONFIG_VALID=false
 result=$(resolve CODEX_VERSION .codex.version "")
 [[ "$result" == "4.5.6" ]] && ok "resolve: codex.version user fallback" || bad "resolve: codex.version user fallback (got '$result')"
 
+# --- resolve tests for proxy.env_passthrough ---
+
+printf 'proxy:\n  env_passthrough: false\n' > "$TMPDIR/proxy-workspace.yaml"
+printf 'proxy:\n  env_passthrough: true\n' > "$TMPDIR/proxy-user.yaml"
+
+WORKSPACE_CONFIG="$TMPDIR/proxy-workspace.yaml"
+USER_CONFIG="$TMPDIR/proxy-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+unset SANDBOX_PROXY_ENV_PASSTHROUGH
+
+result=$(resolve SANDBOX_PROXY_ENV_PASSTHROUGH .proxy.env_passthrough true)
+[[ "$result" == "false" ]] && ok "resolve: proxy passthrough workspace wins" || bad "resolve: proxy passthrough workspace (got '$result')"
+
+SANDBOX_PROXY_ENV_PASSTHROUGH=true
+result=$(resolve SANDBOX_PROXY_ENV_PASSTHROUGH .proxy.env_passthrough false)
+[[ "$result" == "true" ]] && ok "resolve: proxy passthrough env wins" || bad "resolve: proxy passthrough env (got '$result')"
+unset SANDBOX_PROXY_ENV_PASSTHROUGH
+
+WORKSPACE_CONFIG_VALID=false
+result=$(resolve SANDBOX_PROXY_ENV_PASSTHROUGH .proxy.env_passthrough false)
+[[ "$result" == "true" ]] && ok "resolve: proxy passthrough user fallback" || bad "resolve: proxy passthrough user fallback (got '$result')"
+
+USER_CONFIG_VALID=false
+result=$(resolve SANDBOX_PROXY_ENV_PASSTHROUGH .proxy.env_passthrough true)
+[[ "$result" == "true" ]] && ok "resolve: proxy passthrough default true" || bad "resolve: proxy passthrough default (got '$result')"
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]] || exit 1
