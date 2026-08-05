@@ -110,6 +110,7 @@ git:
     name: claude-bot     # string,  default: "" (not set - inherit)
     email: bot@example.com  # string,  default: "" (not set)
   host_config_passthrough: true  # bool, default: true
+  allow_local_operations: false  # bool, default: false
   policy:
     allow:              # list of regex (ERE), default: empty
       - "^reset"
@@ -286,6 +287,20 @@ cat /etc/claude-sandboxed/git-policy.conf
 ```
 
 The file is only present when `git.policy` is set. When neither `allow` nor `block` is configured, the wrapper uses the built-in default policy directly.
+
+### Local-override mode
+
+When `git.allow_local_operations` is `true`, the wrapper blocks only `git push` and allows all local operations unconditionally - including `reset --hard`, `commit --amend`, `branch -D`, `clean -fd`, `rebase`, `config`, and the history-bypass plumbing commands. User `policy.allow`/`block` rules are ignored entirely in this mode.
+
+Intended for quick override from the command line when you trust the agent with local repository operations:
+
+```sh
+claude-sandboxed --allow-local-git
+```
+
+Remote push protection is unchanged: the wrapper still blocks `git push`, and the system git config in the container entrypoint still blocks SSH pushes and rewrites GitHub URLs to `https://prohibited/` as defense in depth.
+
+A warning is printed to stderr when `allow_local_operations: true` is combined with non-empty `policy.allow` or `policy.block`, since the policy rules become inert in override mode.
 
 ### Authentication
 

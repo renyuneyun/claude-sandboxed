@@ -78,6 +78,13 @@ git:
   # the container. Default: true (preserves host git identity inheritance).
   # host_config_passthrough: true
 
+  # When true, the wrapper blocks only git push and allows all local
+  # operations unconditionally (reset --hard, commit --amend, branch -D,
+  # config, rebase, etc.). User policy.allow/block rules are ignored.
+  # Useful for quick override from the command line: --allow-local-git.
+  # Default: false.
+  # allow_local_operations: false
+
   # User-defined git operation policy. Regex patterns (ERE) matched against
   # the git subcommand + args (global flags like -C are stripped first).
   # Substring match by default; use ^ and $ to anchor.
