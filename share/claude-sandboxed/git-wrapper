@@ -53,6 +53,21 @@ block() {
     exit 1
 }
 
+# --- Local-override mode ---
+# When enabled, only push is blocked; user policy file and built-in
+# default blocks are skipped entirely.
+ALLOW_LOCAL="${SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS:-false}"
+if [[ "$ALLOW_LOCAL" == "true" ]]; then
+    if [[ "$subcommand" == "push" ]]; then
+        echo "[SECURITY] git push is blocked by claude-sandboxed." >&2
+        echo "[SECURITY] Local-override mode is active: all local operations are allowed; only remote-affecting operations (push) are blocked." >&2
+        echo "[SECURITY] Reconsider whether pushing to remote aligns with the user's intent." >&2
+        echo "[SECURITY] The sandbox is for autonomous work. Do not ask the user to authorize individual operations; escalate only as a last resort if no in-sandbox approach exists." >&2
+        exit 1
+    fi
+    exec "$REAL_GIT" "$@"
+fi
+
 # --- User policy file (patches the default policy) ---
 # Format: [allow] and [block] section headers, one regex per line.
 # Lines starting with # or empty are skipped. Regex is ERE, matched

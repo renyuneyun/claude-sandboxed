@@ -314,6 +314,116 @@ fi
 
 rm -f "$POLICY_TMP"
 
+# --- Local-override mode tests ---
+# When SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true, only push is blocked.
+# User policy file is also ignored.
+
+# Same as assert_blocked but with SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true.
+assert_blocked_override() {
+    local desc="$1"; shift
+    rm -f "$STUB_DIR/called"
+    local err code
+    err="$(REAL_GIT="$STUB_DIR/git" SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true "$WRAPPER" "$@" 2>&1 >/dev/null)" && code=0 || code=$?
+    if [[ $code -ne 1 ]]; then
+        echo "FAIL: $desc (exit $code, expected 1)"
+        fail=$((fail+1)); return
+    fi
+    if [[ "$err" != *"[SECURITY]"* ]]; then
+        echo "FAIL: $desc (no [SECURITY] in stderr: $err)"
+        fail=$((fail+1)); return
+    fi
+    if [[ -f "$STUB_DIR/called" ]]; then
+        echo "FAIL: $desc (real git was called despite block)"
+        fail=$((fail+1)); return
+    fi
+    echo "PASS: $desc"
+    pass=$((pass+1))
+}
+
+# Same as assert_allowed but with SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true.
+assert_allowed_override() {
+    local desc="$1"; shift
+    rm -f "$STUB_DIR/called"
+    REAL_GIT="$STUB_DIR/git" SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true "$WRAPPER" "$@" >/dev/null 2>&1
+    local code=$?
+    if [[ $code -ne 0 ]]; then
+        echo "FAIL: $desc (exit $code, expected 0)"
+        fail=$((fail+1)); return
+    fi
+    if [[ ! -f "$STUB_DIR/called" ]]; then
+        echo "FAIL: $desc (real git was not called)"
+        fail=$((fail+1)); return
+    fi
+    echo "PASS: $desc"
+    pass=$((pass+1))
+}
+
+# Push still blocked in override mode
+assert_blocked_override "override: git push" push
+assert_blocked_override "override: git push origin main" push origin main
+
+# Previously-blocked local ops now allowed
+assert_allowed_override "override: git reset --hard HEAD~1" reset --hard HEAD~1
+assert_allowed_override "override: git reset --soft HEAD~1" reset --soft HEAD~1
+assert_allowed_override "override: git commit --amend" commit --amend
+assert_allowed_override "override: git commit --reset-author" commit --reset-author
+assert_allowed_override "override: git branch -D x" branch -D x
+assert_allowed_override "override: git branch --delete --force x" branch --delete --force x
+assert_allowed_override "override: git config user.name X" config user.name X
+assert_allowed_override "override: git config --global user.name X" config --global user.name X
+assert_allowed_override "override: git clean -fd" clean -fd
+assert_allowed_override "override: git rebase main" rebase main
+assert_allowed_override "override: git stash drop" stash drop
+assert_allowed_override "override: git stash clear" stash clear
+assert_allowed_override "override: git tag -f v1" tag -f v1
+assert_allowed_override "override: git tag --force v1" tag --force v1
+assert_allowed_override "override: git checkout -B x" checkout -B x
+assert_allowed_override "override: git checkout --force x" checkout --force x
+assert_allowed_override "override: git switch -C x" switch -C x
+assert_allowed_override "override: git restore --worktree x" restore --worktree x
+assert_allowed_override "override: git rm file" rm file
+assert_allowed_override "override: git gc --prune" gc --prune
+assert_allowed_override "override: git reflog expire" reflog expire
+assert_allowed_override "override: git notes remove" notes remove
+assert_allowed_override "override: git worktree remove x" worktree remove x
+assert_allowed_override "override: git commit-tree HEAD" commit-tree HEAD
+assert_allowed_override "override: git update-ref refs/heads/x HEAD" update-ref refs/heads/x HEAD
+assert_allowed_override "override: git replace refs/heads/x HEAD" replace refs/heads/x HEAD
+assert_allowed_override "override: git filter-branch" filter-branch
+assert_allowed_override "override: git filter-repo" filter-repo
+assert_allowed_override "override: git fast-import" fast-import
+assert_allowed_override "override: git prune" prune
+assert_allowed_override "override: git symbolic-ref" symbolic-ref
+
+# Default-allowed ops still allowed
+assert_allowed_override "override: git status" status
+assert_allowed_override "override: git log" log
+
+# User policy file ignored in override mode
+POLICY_TMP="$(mktemp)"
+printf '[block]\n^status$\n[allow]\n^push$\n' > "$POLICY_TMP"
+rm -f "$STUB_DIR/called"
+REAL_GIT="$STUB_DIR/git" SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true GIT_POLICY_FILE="$POLICY_TMP" "$WRAPPER" status >/dev/null 2>&1
+code=$?
+if [[ $code -eq 0 && -f "$STUB_DIR/called" ]]; then
+    echo "PASS: override: user policy block on status ignored"
+    pass=$((pass+1))
+else
+    echo "FAIL: override: user policy block on status ignored (code=$code)"
+    fail=$((fail+1))
+fi
+rm -f "$STUB_DIR/called"
+REAL_GIT="$STUB_DIR/git" SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true GIT_POLICY_FILE="$POLICY_TMP" "$WRAPPER" push >/dev/null 2>&1
+code=$?
+if [[ $code -eq 1 && ! -f "$STUB_DIR/called" ]]; then
+    echo "PASS: override: user policy allow on push ignored"
+    pass=$((pass+1))
+else
+    echo "FAIL: override: user policy allow on push ignored (code=$code)"
+    fail=$((fail+1))
+fi
+rm -f "$POLICY_TMP"
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]] || exit 1
