@@ -296,6 +296,64 @@ else
     bad "resolve: git.host_config_passthrough user true (got '$result')"
 fi
 
+# --- resolve tests for git.allow_local_operations ---
+
+# Setup: config files with allow_local_operations
+printf 'git:\n  allow_local_operations: true\n' > "$TMPDIR/allow-workspace.yaml"
+printf 'git:\n  allow_local_operations: false\n' > "$TMPDIR/allow-user.yaml"
+
+# Test: git.allow_local_operations - env var wins
+SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=false
+WORKSPACE_CONFIG="$TMPDIR/allow-workspace.yaml"
+USER_CONFIG="$TMPDIR/allow-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS .git.allow_local_operations false)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: git.allow_local_operations env var wins"
+else
+    bad "resolve: git.allow_local_operations env var wins (got '$result')"
+fi
+
+# Test: git.allow_local_operations - workspace wins over user (no env)
+unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+WORKSPACE_CONFIG="$TMPDIR/allow-workspace.yaml"
+USER_CONFIG="$TMPDIR/allow-user.yaml"
+WORKSPACE_CONFIG_VALID=true
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS .git.allow_local_operations false)
+if [[ "$result" == "true" ]]; then
+    ok "resolve: git.allow_local_operations workspace wins over user"
+else
+    bad "resolve: git.allow_local_operations workspace wins over user (got '$result')"
+fi
+
+# Test: git.allow_local_operations - user fills gap when workspace absent
+unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/allow-user.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=true
+result=$(resolve SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS .git.allow_local_operations false)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: git.allow_local_operations user fills gap when workspace absent"
+else
+    bad "resolve: git.allow_local_operations user fills gap (got '$result')"
+fi
+
+# Test: git.allow_local_operations - default false when nothing set
+unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+WORKSPACE_CONFIG="$TMPDIR/nonexistent.yaml"
+USER_CONFIG="$TMPDIR/nonexistent.yaml"
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+result=$(resolve SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS .git.allow_local_operations false)
+if [[ "$result" == "false" ]]; then
+    ok "resolve: git.allow_local_operations default false"
+else
+    bad "resolve: git.allow_local_operations default (got '$result')"
+fi
+
 # --- resolve tests for claude.version and sandbox.cleanup ---
 
 # Setup: config files with claude and sandbox sections

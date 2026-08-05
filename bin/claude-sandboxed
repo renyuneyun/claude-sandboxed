@@ -60,6 +60,7 @@ launcher_error() {
 
 parse_launcher_args() {
   CLI_TOOL=""
+  CLI_ALLOW_LOCAL_GIT=""
   WORKSPACE_ARG=""
   TOOL_USER_ARGS=()
 
@@ -69,6 +70,10 @@ parse_launcher_args() {
         shift
         TOOL_USER_ARGS=("$@")
         return 0
+        ;;
+      --allow-local-git)
+        CLI_ALLOW_LOCAL_GIT=true
+        shift
         ;;
       --tool)
         (($# >= 2)) || { launcher_error "--tool requires claude or codex"; return; }
@@ -102,6 +107,16 @@ resolve_tool() {
     claude|codex) echo "$selected" ;;
     *) launcher_error "unsupported tool '$selected'; supported tools: claude, codex" ;;
   esac
+}
+
+resolve_allow_local() {
+  local cli_value="$1" selected
+  if [[ -n "$cli_value" ]]; then
+    selected="$cli_value"
+  else
+    selected="$(resolve SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS .git.allow_local_operations false)"
+  fi
+  echo "$selected"
 }
 
 detect_host_version() {
@@ -280,6 +295,10 @@ fi
 SANDBOX_GIT_POLICY_ALLOW="$(resolve_list SANDBOX_GIT_POLICY_ALLOW .git.policy.allow)"
 SANDBOX_GIT_POLICY_BLOCK="$(resolve_list SANDBOX_GIT_POLICY_BLOCK .git.policy.block)"
 
+# Git local-override mode: when true, the wrapper blocks only git push
+# and ignores the user policy file. CLI flag > env > config > default.
+SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS="$(resolve_allow_local "$CLI_ALLOW_LOCAL_GIT")"
+
 GIT_POLICY_VOLUME_ARGS=()
 POLICY_FILE=""
 if [[ -n "$SANDBOX_GIT_POLICY_ALLOW" || -n "$SANDBOX_GIT_POLICY_BLOCK" ]]; then
@@ -294,6 +313,18 @@ if [[ -n "$SANDBOX_GIT_POLICY_ALLOW" || -n "$SANDBOX_GIT_POLICY_BLOCK" ]]; then
     trap 'rm -f "$POLICY_FILE"' EXIT
 fi
 
+# Git local-override env var: passed into the container only when true.
+GIT_MODE_ENV_ARGS=()
+if [[ "$SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS" == "true" ]]; then
+    GIT_MODE_ENV_ARGS+=(-e SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true)
+fi
+
+# Warn when local-override is on but user policy lists are also set (they'll be ignored).
+if [[ "$SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS" == "true" && \
+      ( -n "$SANDBOX_GIT_POLICY_ALLOW" || -n "$SANDBOX_GIT_POLICY_BLOCK" ) ]]; then
+    echo "claude-sandboxed: git.allow_local_operations is enabled; git.policy.allow/block rules will be ignored." >&2
+fi
+
 # Run the selected coding agent in a one-shot container.
 # Each invocation gets its own container; named volumes (claude-agent-home) persist across runs.
 docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml" run \
@@ -302,6 +333,7 @@ docker compose -p "$COMPOSE_PROJECT" -f "$SANDBOX_COMPOSE_DIR/docker-compose.yml
   "${PROXY_ENV_ARGS[@]}" \
   "${TOOL_ENV_ARGS[@]}" \
   "${GIT_ENV_ARGS[@]}" \
+  "${GIT_MODE_ENV_ARGS[@]}" \
   "${GIT_VOLUME_ARGS[@]}" \
   "${TOOL_VOLUME_ARGS[@]}" \
   "${GIT_POLICY_VOLUME_ARGS[@]}" \

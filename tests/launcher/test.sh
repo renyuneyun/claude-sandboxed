@@ -79,6 +79,23 @@ assert_eq "parse: passthrough count" "3" "${#TOOL_USER_ARGS[@]}"
 assert_eq "parse: passthrough first" "--model" "${TOOL_USER_ARGS[0]}"
 assert_eq "parse: passthrough spaced value" "prompt with spaces" "${TOOL_USER_ARGS[2]}"
 
+parse_launcher_args --allow-local-git
+assert_eq "parse: allow-local-git sets CLI_ALLOW_LOCAL_GIT" "true" "${CLI_ALLOW_LOCAL_GIT:-}"
+
+parse_launcher_args
+assert_eq "parse: no flag leaves CLI_ALLOW_LOCAL_GIT empty" "" "${CLI_ALLOW_LOCAL_GIT:-}"
+
+parse_launcher_args --allow-local-git --tool codex
+assert_eq "parse: allow-local-git with tool" "true" "${CLI_ALLOW_LOCAL_GIT:-}"
+assert_eq "parse: tool with allow-local-git" "codex" "$CLI_TOOL"
+
+parse_launcher_args --tool codex --allow-local-git
+assert_eq "parse: flag order independence (tool)" "codex" "$CLI_TOOL"
+assert_eq "parse: flag order independence (override)" "true" "${CLI_ALLOW_LOCAL_GIT:-}"
+
+# Reset state
+unset CLI_ALLOW_LOCAL_GIT
+
 if parse_launcher_args --tool >/dev/null 2>&1; then bad "parse: missing tool value"; else ok "parse: missing tool value"; fi
 if parse_launcher_args --bogus >/dev/null 2>&1; then bad "parse: unsupported option"; else ok "parse: unsupported option"; fi
 if parse_launcher_args one two >/dev/null 2>&1; then bad "parse: multiple workspaces"; else ok "parse: multiple workspaces"; fi
@@ -111,6 +128,45 @@ if command -v yq >/dev/null 2>&1; then
     WORKSPACE_CONFIG_VALID=false
     assert_eq "select: user fills workspace gap" "claude" "$(resolve_tool "")"
 fi
+
+# --- resolve_allow_local tests ---
+# Follows the resolve_tool pattern: CLI value wins, else resolve() from env/config/default.
+
+# Without yq, only env var and default matter
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
+unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+assert_eq "resolve_allow_local: default false" "false" "$(resolve_allow_local "")"
+assert_eq "resolve_allow_local: CLI true wins" "true" "$(resolve_allow_local true)"
+SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true
+assert_eq "resolve_allow_local: env true" "true" "$(resolve_allow_local "")"
+SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=false
+assert_eq "resolve_allow_local: env false" "false" "$(resolve_allow_local "")"
+assert_eq "resolve_allow_local: CLI true beats env false" "true" "$(resolve_allow_local true)"
+unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+
+if command -v yq >/dev/null 2>&1; then
+    ALLOW_TMP="$(mktemp -d)"
+    PROFILE_TMP_DIRS+=("$ALLOW_TMP")
+    printf 'git:\n  allow_local_operations: true\n' > "$ALLOW_TMP/workspace.yaml"
+    printf 'git:\n  allow_local_operations: false\n' > "$ALLOW_TMP/user.yaml"
+    WORKSPACE_CONFIG="$ALLOW_TMP/workspace.yaml"
+    USER_CONFIG="$ALLOW_TMP/user.yaml"
+    WORKSPACE_CONFIG_VALID=true
+    USER_CONFIG_VALID=true
+    unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+    assert_eq "resolve_allow_local: workspace true beats user false" "true" "$(resolve_allow_local "")"
+    WORKSPACE_CONFIG_VALID=false
+    assert_eq "resolve_allow_local: user false when workspace invalid" "false" "$(resolve_allow_local "")"
+    SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true
+    assert_eq "resolve_allow_local: env beats workspace" "true" "$(resolve_allow_local "")"
+    assert_eq "resolve_allow_local: CLI beats env" "false" "$(resolve_allow_local false)"
+    unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+fi
+
+# Restore state for subsequent tests
+WORKSPACE_CONFIG_VALID=false
+USER_CONFIG_VALID=false
 
 reset_profile_context() {
     PROFILE_TMP="$(mktemp -d)"
@@ -234,6 +290,89 @@ CAPTURED_JOINED="$(printf '<%s>' "${CAPTURED_DOCKER_ARGS[@]}")"
   ok "integration: disabled proxy does not reach Docker" ||
   bad "integration: disabled proxy reaches Docker ($CAPTURED_JOINED)"
 unset TEST_HTTP_PROXY TEST_PROXY_PASSTHROUGH
+
+# --- GIT_MODE_ENV_ARGS integration tests ---
+CAPTURE_DIR_OVERRIDE="$(mktemp -d)"
+PROFILE_TMP_DIRS+=("$CAPTURE_DIR_OVERRIDE")
+run_captured_launcher "$CAPTURE_DIR_OVERRIDE" --allow-local-git "$SCRIPT_DIR/../.."
+CAPTURED_JOINED="$(printf '<%s>' "${CAPTURED_DOCKER_ARGS[@]}")"
+[[ "$CAPTURED_JOINED" == *"<-e><SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true>"* ]] &&
+  ok "integration: --allow-local-git reaches Docker env" ||
+  bad "integration: --allow-local-git reaches Docker env ($CAPTURED_JOINED)"
+
+CAPTURE_DIR_NO_OVERRIDE="$(mktemp -d)"
+PROFILE_TMP_DIRS+=("$CAPTURE_DIR_NO_OVERRIDE")
+run_captured_launcher "$CAPTURE_DIR_NO_OVERRIDE" "$SCRIPT_DIR/../.."
+CAPTURED_JOINED="$(printf '<%s>' "${CAPTURED_DOCKER_ARGS[@]}")"
+[[ "$CAPTURED_JOINED" != *"<SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true>"* ]] &&
+  ok "integration: no override flag omits env var" ||
+  bad "integration: no override flag omits env var ($CAPTURED_JOINED)"
+
+CAPTURE_DIR_ENV_OVERRIDE="$(mktemp -d)"
+PROFILE_TMP_DIRS+=("$CAPTURE_DIR_ENV_OVERRIDE")
+SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true run_captured_launcher "$CAPTURE_DIR_ENV_OVERRIDE" "$SCRIPT_DIR/../.."
+CAPTURED_JOINED="$(printf '<%s>' "${CAPTURED_DOCKER_ARGS[@]}")"
+[[ "$CAPTURED_JOINED" == *"<-e><SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS=true>"* ]] &&
+  ok "integration: env var override reaches Docker" ||
+  bad "integration: env var override reaches Docker ($CAPTURED_JOINED)"
+unset SANDBOX_GIT_ALLOW_LOCAL_OPERATIONS
+
+# --- Conflicting config warning tests ---
+# Runs the launcher as a subprocess and captures stderr to check for the warning.
+run_launcher_stderr() {
+    local capture_dir="$1"
+    shift
+    mkdir -p "$capture_dir/bin" "$capture_dir/home"
+    printf '#!/bin/sh\nexit 0\n' > "$capture_dir/bin/docker"
+    chmod +x "$capture_dir/bin/docker"
+    HOME="$capture_dir/home" \
+    XDG_CONFIG_HOME="$capture_dir/home/.config" \
+    SANDBOX_UID=1234 \
+    SANDBOX_GID=1234 \
+    SANDBOX_USERNAME=tester \
+    SANDBOX_HOME=/home/tester \
+    SANDBOX_CLEANUP=false \
+    CLAUDE_VERSION=integration-test \
+    CLAUDE_SANDBOXED_DIR="$SCRIPT_DIR/../../share/claude-sandboxed" \
+    PATH="$capture_dir/bin:$PATH" \
+      bash "$LAUNCHER" "$@" 2>&1 >/dev/null
+}
+
+WARN_DIR_1="$(mktemp -d)"
+PROFILE_TMP_DIRS+=("$WARN_DIR_1")
+output=$(run_launcher_stderr "$WARN_DIR_1" --allow-local-git "$SCRIPT_DIR/../..")
+if [[ "$output" == *"git.allow_local_operations is enabled"* && "$output" == *"git.policy.allow/block rules will be ignored"* ]]; then
+    bad "warn: no policy set, no warning expected (got warning)"
+else
+    ok "warn: no policy set, no warning"
+fi
+
+WARN_DIR_2="$(mktemp -d)"
+PROFILE_TMP_DIRS+=("$WARN_DIR_2")
+output=$(SANDBOX_GIT_POLICY_BLOCK="^stash pop" run_launcher_stderr "$WARN_DIR_2" --allow-local-git "$SCRIPT_DIR/../..")
+if [[ "$output" == *"git.allow_local_operations is enabled; git.policy.allow/block rules will be ignored."* ]]; then
+    ok "warn: override + policy.block emits warning"
+else
+    bad "warn: override + policy.block emits warning (got '$output')"
+fi
+
+WARN_DIR_3="$(mktemp -d)"
+PROFILE_TMP_DIRS+=("$WARN_DIR_3")
+output=$(SANDBOX_GIT_POLICY_ALLOW="^reset" run_launcher_stderr "$WARN_DIR_3" --allow-local-git "$SCRIPT_DIR/../..")
+if [[ "$output" == *"git.allow_local_operations is enabled; git.policy.allow/block rules will be ignored."* ]]; then
+    ok "warn: override + policy.allow emits warning"
+else
+    bad "warn: override + policy.allow emits warning (got '$output')"
+fi
+
+WARN_DIR_4="$(mktemp -d)"
+PROFILE_TMP_DIRS+=("$WARN_DIR_4")
+output=$(SANDBOX_GIT_POLICY_BLOCK="^stash pop" run_launcher_stderr "$WARN_DIR_4" "$SCRIPT_DIR/../..")
+if [[ "$output" == *"git.allow_local_operations is enabled"* ]]; then
+    bad "warn: no override, no warning expected (got warning)"
+else
+    ok "warn: no override, no warning"
+fi
 
 assert_rejected_before_docker() {
     local name="$1" expected_error="$2"
